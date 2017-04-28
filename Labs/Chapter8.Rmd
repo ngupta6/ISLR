@@ -1,0 +1,103 @@
+---
+title: "Chapter 8 Lab"
+html_document:
+  toc: true
+  toc_depth: 2
+  toc_float:
+    collapsed: false
+    smooth_scroll: false
+output: html_notebook
+---
+
+# Setup
+We work on the `Carseats` data, and we are all about growing a tree!
+
+```{r}
+rm(list = ls())
+search()
+library(ISLR)
+library(tree)
+# knowing the data and variables
+dim(Carseats)
+summary(Carseats)
+sum(is.na(Carseats))  # no missing
+# learning about response
+summary(Carseats$Sales)  # unit unknown, mean and median 7.5
+hist(Carseats$Sales)  # not much skewed
+# attaching the data: not recommended, but we follow the ISLR book
+attach(Carseats)
+```
+
+After the initial setup, we create a dummy variable from `Sales` to work on as the response.
+```{r}
+High = ifelse(Sales > 8, "YES", "No")
+summary(High)
+```
+
+The variable `High` is a vector of strings. It resides in the Global Environment and that is why `summary(High)` gives us no information about the values it takes. So the next step is to add the variable to the working data:
+```{r}
+Carseats = data.frame(Carseats, High)
+```
+
+Time to grow a tree:
+```{r}
+tree.carseats = tree(High ~ . - Sales, data = Carseats)
+summary(tree.carseats)
+```
+
+How is the residual mean deviance computed?
+
+$$
+Dev = 2\times \frac{\mathcal{L} ( y|\theta_s)}{\mathcal{L}(y|\theta_0)}
+= 2\times \frac {1} { \log\Big(\prod_{m,k} \big({\hat{p}_{mk}}^{n_{mk}}\big)\Big) }
+= -2\sum_m \sum_k n_{mk}\log \hat{p}_{mk}
+$$
+since deviance is equal to two times the ratio of log-likehoods, where $\theta_s$ is the parameters for the saturated model, and $\theta_0$ is the one for the model we consider (which is of course nested in the saturated model. The probability distributions are assumed to be multimonial. The saturated model is the one with a box for each point, which results in perfect fit and the estimates $\hat{p}_{mk}$ all being equal to 1. The mean deviance is computing by dividing deviance by $n - |T|$.  
+Next, we graphically represent the tree:
+```{r}
+plot(tree.carseats)
+text(tree.carseats, pretty = 0, cex = 0.6)
+```
+This graphs represents one of the most attractive things about trees, the fact tht they could be displayed. Shelving location appears to be the most important indicator of Sales. The option `pretty = 0` makes the graph disply category names, rather than single letters for each category. 
+
+```{r}
+tree.carseats
+```
+Each node is represented with a number. One can trace back a node by dividing this number by two and taking the integer part of it. The resulting number denotes the parent node. By sequentially doing this, we can trace the node back to the root. * denotes the terminal nodes.  
+
+What about the test error rate?
+```{r}
+set.seed(2)
+train = sample(nrow(Carseats), 200)
+test = -train
+test.carseats = Carseats[test, ]
+test.high = High[test] 
+tree.carseats = tree(High ~ . - Sales, data = Carseats, subset = train)
+tree.preds = predict(tree.carseats, newdata = test.carseats, type = "class")
+head(tree.preds)
+table(tree.preds, test.high)
+(86+57)/200
+```
+The test error rate estimate is 72%, while the training error rate was estimated to be 91%. 
+
+Pruning the tree is done through cross-validation over a sequence of trees found by cost-complexity pruning.
+```{r}
+set.seed(3)
+cv.tree(tree.carseats, FUN = prune.misclass)
+```
+
+The `FUN` argument in `cv.tree` determines the nested sequence of subtrees and is the output of the command `prune.tree()`, which has two forms:  
+
+1. Using deviance for pruning, which is the default
+2. Using misclassification error for pruning which is done through equating the argument `FUN` to `prune.tree(method = "misclass")` or its short form `prune.misclass`
+
+`$size` is the number of leaves, and `$k` corresponds to $\alpha$. The output `$dev` corresponds to misclassification in this case, despite its name. 
+
+## Summary
+
+* `ifelse`
+* After fitting the tree, we can plot it, see its nodes, compute test error rate, and prune it
+* `type = class` used to get factor predictions for a tree
+* argument `FUN = prune.miscalss` for `cv.tree`
+* remember to set the seed before doing CV
+
