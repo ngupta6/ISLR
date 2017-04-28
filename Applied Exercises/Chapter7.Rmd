@@ -1,0 +1,926 @@
+---
+title: "ISLR Chapter 7 Applied Exercises"
+author: "Yoosef Ghahreman"
+output: 
+  html_document:
+    # highlight: pygments
+    # code_folding: hide
+    # number_sections: true
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+  html_notebook: default
+---
+
+
+This is an extended solution to the applied exercises in chapter 7 of ISLR. Frequently, the solutions go beyond what is demanded in the book. 
+
+# Exercise 6
+We clear and load the data.
+
+```{r, include=FALSE}
+# detach("package:Wage")
+# detach("package:gam")
+# detach("package:foreach")
+# detach("package:splines")
+
+# detach("package:ISLR")
+# detach("Wage")
+
+```
+
+```{r}
+rm(list = ls())
+search()  # detach anything that is not needed
+library(ISLR)
+attach(Wage)
+```
+
+## Part 6.a)
+
+### Baseline C.V.
+We perform C.V. for polynomial fit to find the optimal degree of the polynomial. 
+
+```{r 6a_1cv}
+library(boot)
+n.deg = 12
+cv.errors.1 = matrix(NA, nrow = n.deg, ncol = 2, dimnames = 
+                     list(paste0(rep("Degree ", length = n.deg), 1:n.deg), NULL))
+for (i.deg in 1:n.deg) {
+  glm.fit = glm(wage ~ poly(age, i.deg, raw = T), data = Wage)
+  glm.cv = cv.glm(data = Wage, glm.fit, K = 5)
+  cv.errors.1[i.deg,] = glm.cv$delta
+}
+cv.errors.1
+apply(cv.errors.1, FUN = which.min, MARGIN = 2)
+plot(cv.errors.1[, 1], type = "b")
+```
+
+
+When we re-run the code above, i.e. using different seeds, we see a great deal of variation in the result due to the randomness in CV splits. But in all cases we examine, adjusted and unadjusted MSE (`cv.errors.1$delta[1]` and `cv.errors.1$delta[2]`) lead to the same conclusion. The randomness does not affect the qualitative features of the plot by much. In all cases, we have a considerable drop in the error estimate from degree 1 to 2, and a small drop from 2 to 3. As a result, degree 3 seems a reasonable choice.  
+
+We could verify how good of a choice degree 3 is by finding error bands for the C.V. estimates. In the rest of analysis, we make two adjustents:  
+
+* We restrict attention to the unadjusted MSE and make the second dimension represent the randomness in choosing training set. 
+* We set the seed to 1 to guarantee reproducibility.
+
+### 5-Fold C.V.
+
+```{r q6a_30cv, cache = TRUE}
+n.deg = 12
+set.seed(1)
+n.cv = 30
+dim1.name = paste0(rep("Degree ", length = n.deg), 1:n.deg)
+dim2.name = paste0(rep("CV Iter ", length = n.cv), 1:n.cv)
+cv.errors.K5 = array(NA, dim = c(n.deg, n.cv), dimnames = 
+                     list(dim1.name, dim2.name))
+for (i.deg in 1:n.deg) {
+  for (j.cv in 1:n.cv) {
+    glm.fit = glm(wage ~ poly(age, i.deg, raw = T), data = Wage)
+    glm.cv = cv.glm(data = Wage, glm.fit, K = 5)
+    cv.errors.K5[i.deg, j.cv] = glm.cv$delta[1]
+  }
+}
+```
+
+```{r q6a_out30cv}
+se.cv.errors.K5 = apply(cv.errors.K5, FUN = sd, MARGIN = 1)   # we want the cv dimension to be omitted
+mean.cv.errors.K5 = apply(cv.errors.K5, FUN = mean, MARGIN = 1)
+plot(mean.cv.errors.K5, type = "l", lwd = 2, col = "blue", ylim = c(1590, 1660))
+se.bands.K5 = cbind(mean.cv.errors.K5 - 2*se.cv.errors.K5, mean.cv.errors.K5 + 2*se.cv.errors.K5)
+matlines(se.bands.K5, lty = 2, col = "red")
+```
+
+**ote that the plot above captures the variance of the MSE estimate for our sample, but could not say anything about the variation in the MSE due to randomness in training sets.** The plot reinforces our choice of degree 3. The decrease in the MSE estimate from 2 to 3 is reflected not only in the MSE estimate, but is also confirmed by the one-standard-error rule, since the MSE of degree 2 is *not* within one standard error of the of the MSE for the degree three polynomials. We see that the difference between degrees higher than 2 can be associated with the randomness of splits in our training sample (note again that there is another source of variation: due to different training errors which we cannot say anything about it here; we just know it increases as we increase the number of folds).  
+Below, we show the risk involved with blindly choosing the degree with the lowest MSE estimate, regardless of the error in computing MSE, e.g. one-standard-error-rule.
+
+```{r 6a_autoCV}
+cv.errors.K5[, 1]
+min.cv.K5 = apply(cv.errors.K5, FUN = which.min, MARGIN = 2)  # we want the degree dimension to be omitted
+median(min.cv.K5)
+mean(min.cv.K5)
+```
+The average choice of degree will be larger than 7 if we automate the choice without taking into account of the error is MSE estimation.  
+
+The results above highlight a few things, among others:
+
++ Irrelevance of deciding based on adjusted or unadjusted error, as they lead to the same conclusion.
++ Large variability in C.V. results
+
+They also show the importance of naming array dimensions in readability of numbers.  
+
+What if we increase the number of folds? *We know it would increase the variance resulting from the choice of training set, although we have no way to quantify that, and we will see it decreases bias.*
+
+### 10-Fold C.V.
+
+In the example below, we increase the number of folds to 10. 
+```{r 6a_cv30k10, cache = T}
+n.folds = 10
+n.deg = 12
+set.seed(1)
+n.cv = 30
+dim1.name = paste0(rep("Degree ", length = n.deg), 1:n.deg)
+dim2.name = paste0(rep("CV Iter ", length = n.cv), 1:n.cv)
+cv.errors.K10 = array(NA, dim = c(n.deg, n.cv), dimnames = 
+                     list(dim1.name, dim2.name))
+for (i.deg in 1:n.deg) {
+  for (j.cv in 1:n.cv) {
+    glm.fit = glm(wage ~ poly(age, i.deg, raw = T), data = Wage)
+    glm.cv = cv.glm(data = Wage, glm.fit, K = n.folds)
+    cv.errors.K10[i.deg, j.cv] = glm.cv$delta[1]
+  }
+}
+```
+Now we produce the output with 30 cross-validations:
+```{r 6a_cv30k10out}
+se.cv.errors.K10 = apply(cv.errors.K10, FUN = sd, MARGIN = 1)
+mean.cv.errors.K10 = apply(cv.errors.K10, FUN = mean, MARGIN = 1)
+plot(mean.cv.errors.K10, type = "l", lwd = 2, col = "darkblue", ylim = c(1590, 1615))
+se.bands.K10 = cbind(mean.cv.errors.K10 - 2*se.cv.errors.K10, mean.cv.errors.K10 + 2*se.cv.errors.K10)
+matlines(se.bands.K10, lty = 2, col = "darkred", lwd = 2)
+lines(mean.cv.errors.K5, type = "l", lty = 1, col = "blue")
+matlines(se.bands.K5, lty = 3, col = "red")
+```
+The similarity between 5 and 10 folds is reassuring. But with 10 folds, degree 4 looks a bit more reasonable, although degree 3 would still be the choice according the one-standard-error-rule.  
+
+As we know theoretically, larger number of folds leads to larger variance across training sets, and lower bias. The lower bias can be observed above, but note that the lower variance above for 10 folds is across different random splits. The variance across training sets can not be evaluated unless we have the population's data.     
+Below, we see that the blind choice of degree leads to same conclusion for 5 and 10 folds: 
+```{r 6a_cv30K10autoCV}
+cv.errors.K10[, 1]
+min.cv.K10 = apply(cv.errors.K5, FUN = which.min, MARGIN = 2)  # we want the degree dimension to be omitted
+median(min.cv.K10)
+mean(min.cv.K10)
+```
+
+### LOOCV
+
+To completely avoid randomness due to splits, we could use LOOCV. The LOOCV is too slow in `cv.glm` since it does not use the LOOCV formula for the linear regression. So we use `CV()` in the library `forecast`:
+```{r 6a_loocv}
+library("forecast")
+cv.errors.loocv = matrix(NA, nrow = n.deg, ncol = 5, dimnames =
+                           list(NULL, c("CV", "AIC", "AICc", "BIC", "AdjR2")))
+for (i.deg in 1:n.deg) {
+  glm.fit = lm(wage ~ poly(age, i.deg, raw = T), data = Wage)
+  glm.cv = CV(glm.fit)
+  cv.errors.loocv[i.deg, ] = glm.cv
+}
+cv.errors.loocv
+which.min(cv.errors.loocv[, 1])
+```
+
+To enable the comparison of different results, we see the 5-fold, 10-fold and n-fold C.V. in the next plot:
+```{r 6a_loocvOut}
+se.cv.errors.K10 = apply(cv.errors.K10, FUN = sd, MARGIN = 1)
+mean.cv.errors.K10 = apply(cv.errors.K10, FUN = mean, MARGIN = 1)
+plot(mean.cv.errors.K10, type = "l", lwd = 2, col = "darkblue", ylim = c(1590, 1615))
+se.bands.K10 = cbind(mean.cv.errors.K10 - 2*se.cv.errors.K10, mean.cv.errors.K10 + 2*se.cv.errors.K10)
+matlines(se.bands.K10, lty = 2, col = "darkred", lwd = 2)
+lines(mean.cv.errors.K5, type = "l", lty = 1, col = "blue")
+matlines(se.bands.K5, lty = 3, col = "red")
+matlines(cv.errors.loocv[, 1], col = "black", lty = 1, lwd = 3)
+```
+The thick black line represents the LOOCV estimate, which is lower as expected. We know that the variance of LOOCV estimate in terms of split randomness is zero. For now, forget about the error bands. Although the full lines look very similar, note that we do not know how accurate each of them is. The brighter the line, the lower the number of folds, and the lower the variance (with respect to training set), but the larger the bias. The bias is minimal when we use LOOCV, but variance is minimal when we use 5 folds.  
+
+Note that so far we assume that if degree d is among the features, all degrees below d would also be. But this needs not be the case. For example, in the figure above we see that adding the degree 9 leads to some improvement while lower degrees like 7 and 8 lead to no improvement (although we note that in this data this may be only due to noise and not carry over to an indepenent data). One way to proceed is to use variable selection, via subset selection or lasso. We follow an alternative route which is to use orthogonal polyomials.
+ 
+### Orthogonal Polynomials
+
+Let's compare the results so far with the result of orthogonal polynomials (which is closely related to ANOVA):
+```{r 6a_orthogonalPoly}
+glm.fit = glm(wage ~ poly(age, n.deg), data = Wage)
+summary(glm.fit)
+```
+There is compelling evidence for degrees 1 to 3, and weaker evidence for degree 9 and 4. 
+If we use raw polynomials, we would see how problems wih multicollinearity dramatically increasethe standard error of the estimates, and make them unreliable:
+```{r 6a_rawPoly}
+glm.fit = glm(wage ~ poly(age, n.deg, raw = T), data = Wage)
+summary(glm.fit)
+```
+
+### ANOVA
+
+Now we use ANOVA to compare models with number of degrees equal to 3, 4, and 9.
+```{r 6a_anovaRaw}
+lm.fit.1 = lm(wage ~ poly(age, 3, raw = T), data = Wage)
+lm.fit.2 = lm(wage ~ poly(age, 4, raw = T), data = Wage)
+lm.fit.3 = lm(wage ~ poly(age, 9, raw = T), data = Wage)
+anova(lm.fit.1, lm.fit.2, lm.fit.3)
+anova(lm.fit.1, lm.fit.3)
+anova(lm.fit.2, lm.fit.3)
+```
+We see that 4 is better than 3 at about 5% level, 9 is  better than 3 at 5% level and 9 is better than 4 at 10% level.  
+We used raw polynomials in ANOVA analysis above. The results below show that the result is the same when we use raw polynomials in `anova`.
+```{r 6a_anovaPoly}
+lm.fit.1 = lm(wage ~ poly(age, 3), data = Wage)
+lm.fit.2 = lm(wage ~ poly(age, 4), data = Wage)
+lm.fit.3 = lm(wage ~ poly(age, 9), data = Wage)
+anova(lm.fit.1, lm.fit.2, lm.fit.3)
+anova(lm.fit.1, lm.fit.3)
+
+```
+
+
+We will choose degree 4, especially since it is unusual to use degrees above 3 or 4 with polynomial regression (which is likely to lead to unusual behavior of the fit at the boundaries. The fit is shown in the figure below:
+```{r 6a_finalPolyOut}
+lm.fit = lm(wage ~ poly(age, degree = 4, raw = T), data = Wage)
+plot(age, wage, col = "darkgrey", cex = 0.5)
+age.grid = seq(from = min(age), to = max(age))
+preds = predict(lm.fit, newdata = data.frame(age = age.grid))
+lines(age.grid, preds, lwd = 2, col = "blue")
+```
+
+Another model to investigate is a models with having degrees up to 4, plus degree 9, excluding the intermediate degrees. We will not pursue it here.
+
+## Part 6.b)
+We use step function to predict wage using age, using cross-validation to choose the optimal number of pieces.  
+We first write a function for cross-validataion:
+
+```{r}
+library(boot)
+library(ISLR)
+set.seed(5082)
+cv.error <- rep (0,12)
+for (i in 2:13){
+  Wage$tmp <- cut(Wage$age,i)
+  step.fit = glm(wage~tmp, data = Wage)
+  cv.error[i] <- cv.glm(Wage ,step.fit, K= 10)$delta [1]
+}
+cv.error
+```
+
+
+```{r, include=T}
+# rm(step.cv)
+max.cuts = 20
+# step.fits = list(mode = "list", length = max.cuts)
+# names(step.fits) = paste0(1:max.cuts, rep(" Cuts", length = max.cuts))
+set.seed(1)
+step.cv = rep(NA, length = max.cuts)
+names(step.cv) = paste0(1:max.cuts, rep(" Cuts", length = max.cuts))
+for (i in 2:max.cuts) {
+  Wage$tmp = cut(age, breaks = i)
+  glm.fit = glm(wage ~ tmp, data = Wage)
+  step.cv[i] = cv.glm(data = Wage, glmfit = glm.fit, K = 5)$delta[1]
+}
+plot(step.cv, type = "b")
+
+```
+
+Up to 20 cuts are used. A general lesson from the code is that to be careful with the formula inside `cv.glm`. We should define it as clear as possible choosing all features from variables available in the dataset. Otherwise, for example, in the case of inline `cut()` in `glm`, when the resulting glm model is fed to the `cv.glm` it results in an error, since the variable is not present in the dataset. That is why we have defined the variable `tmp = cut(age, breaks = i)` instead of using `cut(age, breaks = i)` inline in `glm()`. Another type of error could happen from `cv.glm()` when we use a variable from another dataset in `glm()` and feed the `glm()` object to `cv.glm()`, e.g. [here](http://stackoverflow.com/questions/28350357/cv-glm-variable-lengths-differ).  
+
+Using 6 steps results in the best fit. Here is a plot of the best model in green. For comparison, I draw the model with 7 steps that performs worse according to CV, in dashed black:
+```{r}
+plot(age, wage, cex = 0.5, col = "grey")
+fit.6 = lm(wage ~ cut(age, breaks = 6), data = Wage)
+preds.6 = predict(fit.6, newdata = data.frame(age = age.grid))
+lines(age.grid, preds.6, lwd = 2, col = "green")
+fit.7 = lm(wage ~ cut(age, breaks = 7), data = Wage)
+preds.7 = predict(fit.7, newdata = data.frame(age = age.grid))
+lines(age.grid, preds.7, lwd = 1, lty = 2)
+```
+
+Now we remove the variable `tmp` from the data, since we will not need it anymore:
+```{r}
+Wage$tmp = NULL
+```
+
+
+# Exercise 7 <!-- Full Wage Model -->
+We want to estimate a predictive model for `wage` (we will not focus on `logwage`). We start by learning about the data
+```{r}
+names(Wage)
+summary(Wage)
+```
+The variables `region` and `sex` only take one value, so having them in regression would result in the error: 
+**Error in \`contrasts<-\`(\`\*tmp\*\`, value = contr.funs[1 + isOF[nn]]) : contrasts can be applied only to factors with 2 or more levels**.  
+On the other hand, using `. - region - sex` would not work; we would not be able to have these zero variance variables in any formula. To address the issue, we need to create a list of features that excludes these two (the response is also added to this list, since we will create the formula for `lm()`:
+```{r}
+exclude.feats = c("region", "sex", "logwage", "wage")  # features, hence should exlude wage
+include.logic = !(names(Wage) %in% exclude.feats)  # it basically does names(Wage) !%in% exclude.vars
+## Define the formula
+include.plus = paste(names(Wage[, include.logic]), collapse = " + ")
+(form = as.formula(paste("wage ~ ", include.plus)))
+lm.fit = lm(form, data = Wage)
+summary(lm.fit)
+```
+Some values of race and marital status are statistically insignificant due to small number of observations:
+```{r}
+summary(maritl)
+summary(race)
+```
+Combining some of these categories might help the fit, but we do not pursue that here. Now we fit a nonlinear model, including the additional variables:
+```{r}
+library(gam)
+gam.1 = gam(wage ~ year + cut(year, breaks = 2006) + s(age, df = 4) + race + education + jobclass +
+              health + health_ins, data = Wage)
+plot(gam.1, se = T, scale = 72)
+              
+```
+`jobclass` seems to be the least important variable, while `black` might be the only race that makes a difference.
+
+# Exercise 8 
+This question focuse on the `Auto` dataset.
+```{r}
+library(ISLR)
+library(gam)
+names(Auto)
+lm.fit = lm(mpg ~ . - name, data = Auto)
+summary(lm.fit)
+gam.fit = gam(mpg ~ . - name, data = Auto)
+summary(gam.fit)
+```
+The results of `lm()` and `anova()` are drastically different for some variables. The reason for the such a difference is that the t-test is not order-dependent, but the F-test is. Note the difference when we change the order of variables in the tabs below:
+
+### ANOVA for Different Orders {.tabset .tabset-pills}
+The following two tabs show how changing the order of variables in regressions changes the ANOVA results:
+
+#### ANOVA for mpg ~ weight + displacement
+```{r}
+summary(gam(mpg ~ weight + displacement, data = Auto))
+```
+
+#### ANOVA for mpg ~ displacement + weight
+```{r}
+summary(gam(mpg ~ displacement + weight, data = Auto))
+```
+
+
+### Degrees of Freedom: 4 vs. 3 {.tabset .tabset-pills}
+The following two tabs compare ANOVA with four degrees of freedom with one with three degrees of freedom:  
+
+#### 4 Degrees of Freedom
+```{r}
+gam.fit.4 = gam(mpg ~ s(weight, 4) + s(year, 4) +  s(displacement, 4) +
+                 s(horsepower, 4) + acceleration + s(cylinders, 4), data = Auto)
+summary(gam.fit.4)
+```
+
+#### 3 Degrees of Freedom
+```{r}
+gam.fit.3 = gam(mpg ~ s(weight, 3) + s(year, 3) +  s(displacement, 3) +
+                 s(horsepower, 3) + acceleration + s(cylinders, 3), data = Auto)
+summary(gam.fit.3)
+```
+
+###
+
+Let's compare the results of the two models estimated above. First we look at the linear parts:
+```{r}
+names(summary(gam.fit.3))
+summary(gam.fit.3)$parametric.anova
+summary(gam.fit.4)$parametric.anova
+```
+The non-linear parts can be compared below:
+```{r}
+summary(gam.fit.3)$anova
+summary(gam.fit.4)$anova
+```
+There is no clear evidence that one models is better than the other, although the non-linear parts seem to be more statistically significant for degree three. I would choose the model with 3 degrees of freedom, which is the simpler model.  
+Here is another model using local regression:
+```{r}
+gam.fit.lo = gam(mpg ~ lo(weight, span = 0.7) + s(year, df = 3) +  s(displacement, df = 3) +
+                 s(horsepower, df = 3) + acceleration + s(cylinders, df = 3), data = Auto)
+summary(gam.fit.lo)
+# ?gam.s
+```
+Note that we could not change the specification for the local regression by much. Having other variables in `lo()` results in warnings, and having lower `span` for `weight` results in another warning for convergence not being achieved.  
+The fitted plots for the three models estimated above can be seen below.
+
+### Comparison of Models {.tabset .tabset-pills}
+The three tabs below, labeled "3 Degrees", "4 Degrees" and "Local", compare the corresponding model fits:  
+
+#### 3 Degrees
+```{r}
+par(mfrow = c(3,2))
+plot(gam.fit.3, se = T, scale = 15)
+```
+
+
+#### 4 Degrees
+```{r}
+par(mfrow = c(3,2))
+plot(gam.fit.4, se = T, scale = 15)
+```
+
+
+#### Local
+```{r}
+par(mfrow = c(3,2))
+plot(gam.fit.lo, se = T, scale = 15)  # leads to error
+```
+
+# Exercise 9 <!-- : Boston data, effect of dis on nox -->
+In this exercise, we explore the relationship between the distance from five Boston employment centers and nitrogen oxides concentration.
+
+## Part 9.a)  
+```{r}
+library(MASS)
+cubic.fit = lm(nox ~ poly(dis, degree = 3, raw = T), data = Boston)
+summary(cubic.fit)
+dis.range = range(Boston$dis)
+dis.grid = seq(from = dis.range[1], to = dis.range[2], length = 100)
+nox.preds = predict(cubic.fit, newdata = data.frame(dis = dis.grid), se.fit = T)
+se.bands = cbind(nox.preds$fit - 2*nox.preds$se.fit, nox.preds$fit + 2*nox.preds$se.fit)
+plot(Boston$dis, Boston$nox, col = "darkgrey", cex = 0.5)
+lines(dis.grid, nox.preds$fit, col = "blue", lwd = 2)
+matlines(dis.grid, se.bands, lty = 2, lwd = 1, col = "red")
+```
+
+## Part 9.b)
+```{r}
+max.deg = 10
+plot(Boston$dis, Boston$nox, col = "darkgrey", xlim = c(0, 14))
+poly.fits = vector(mode = "list", length = max.deg)
+poly.fits[[1]] = glm(nox ~ dis, data = Boston)
+preds = predict(poly.fits[[1]], newdata = data.frame(dis = dis.grid), se.fit = T)
+poly.df = data.frame(preds$fit)
+for (i in 2:max.deg) {
+  poly.fits[[i]] = glm(nox ~ poly(dis, degree = i), data = Boston)
+  preds = predict(poly.fits[[i]], newdata = data.frame(dis = dis.grid), se.fit = T)
+  se.lband = preds$fit - 2*preds$se.fit
+  se.rband = preds$fit + 2*preds$se.fit
+  poly.df = cbind(poly.df, preds$fit)
+}
+matlines(dis.grid, poly.df, col = 1:max.deg, type = "l", lwd = 2, lty = 1)
+legend("topright", legend = 1:10, col = 1:10, lwd = 2)
+
+col.rb = rainbow(max.deg + 1)[-5]  # since colors 4 and 5 are indistinguishable.
+matplot(dis.grid, poly.df, col = col.rb[1:max.deg], type = "l", lwd = 2, lty = 1, xlim = c(0, 14))
+points(Boston$dis, Boston$nox, pch = 3 , col = "black", cex = 0.5)
+points(max(Boston$dis), Boston$nox[which.max(Boston$dis)], pch = "x", cex = 2)
+legend("topright", legend = 1:10, col = col.rb[1:max.deg], lwd = 2)
+
+### Errrors:
+## cbind(poly.df, preds)
+## matplot(poly.df, col = 1:max.deg, type = c("b"), pch = 1, lty = 1): type= "b" weired look, what abou thte other one?
+## set ylim = c(0,14)
+## legend("topright", legend = 1:10, col = 1:10): no lines
+```
+We use `glm()` instead of `lm()` to be able to use `cv.glm` later on. We also compute RSS, but we wouldn't access to `residuals` as in `lm()` to compute the RSS, so we estimate `lm()`:
+```{r}
+# rss
+poly.rss = matrix(NA, nrow = max.deg, ncol = 2)
+for (i in 1:max.deg) {
+  lm.fit = lm(nox ~ poly(dis, degree = i), Boston)
+  # poly.sum = summary(poly.fits[[i]])
+  poly.rss[i, 1] = sum(summary(lm.fit)$residuals^2)
+  poly.rss[i, 2] = summary(lm.fit)$sigma^2*summary(lm.fit)$df[2]  # an equivalent way of computing rss
+}
+poly.rss
+```
+
+There a few noteworthy points:
+
+* The plot argument `col` can be put equal to `1:10` or `rainbow(10)[1:10]`, where the color combination can be see above (the `rainbow()` generated colors in the code are a bit different, since fifth color is omitted).
+* The combo of `matplot()` and `points()` is more effective in showing the data than `plot()` and `matlines()`.
+    + For `matplot()`, we need to set the `type` argument (and not `lty`), e.g. to `l`; otherwise, the default arguments would make it barely recognizable. 
+* The odd behavior of the plots at the right boundary can be partly associated with the point with larget `dis`, shown by "X" mark: the fit is free to move on the left side of the "X" mark, since there are no data points to match, say when `dis.grid` is between 11 and 12, but then the fit comes back to match the "X"-marked point. 
+* The RSS decreases as we increase the degree, although after degree 8 the change is trivial. 
+
+
+
+## Part 9.c)
+
+Now we use cross-validation to find the optimal degree.
+```{r}
+library(boot)
+poly.errors = rep(NA, length = max.deg)
+for (i in 1:max.deg) {
+  poly.errors[i] = cv.glm(data = Boston, glmfit = poly.fits[[i]], K = 5)$delta[1]
+}
+poly.errors
+plot(poly.errors, type = "b")
+```
+Degree 4 has the lowest C.V. error, but it is too close to 3. So we choose degree 3. 
+
+## Part 9.d) 
+We use `bs()` below.
+```{r}
+bs.fit = lm(nox ~ bs(dis, df = 4), data = Boston)
+summary(bs.fit)
+attr(bs(Boston$dis, df = 4), "knots")
+# predict fit and its error
+preds = predict(bs.fit, newdata = data.frame(dis = dis.grid),
+                se.fit = T)
+# compute bands
+se.bands = cbind(preds$fit - 2*preds$se.fit, preds$fit + 2*preds$se.fit)
+# plot the data
+plot(Boston$dis, Boston$nox, cex = 0.5, col = "darkgrey", pch = 4)
+# draw fit and its bands
+lines(dis.grid, preds$fit, col = "blue", lwd = 2)
+matlines(dis.grid, se.bands, col = "red", lty = 3)
+```
+The right boundary does not look all right. We can change the knot to make it a bit better.
+```{r}
+bs.fit = lm(nox ~ bs(dis, knots = 6), data = Boston)
+summary(bs.fit)
+# predict fit and its error
+preds = predict(bs.fit, newdata = data.frame(dis = dis.grid),
+                se.fit = T)
+# compute bands
+se.bands = cbind(preds$fit - 2*preds$se.fit, preds$fit + 2*preds$se.fit)
+# plot the data
+plot(Boston$dis, Boston$nox, cex = 0.5, col = "darkgrey", pch = 4)
+# draw fit and its bands
+lines(dis.grid, preds$fit, col = "blue", lwd = 2)
+matlines(dis.grid, se.bands, col = "red", lty = 3)
+```
+
+## Part 9.e) 
+We first fit for a range of splines.
+```{r}
+## fit for range
+max.df = 10
+# initialize
+spline.fits = vector(mode = "list", length = max.df)
+spline.preds = matrix(NA, length(dis.grid), max.df)
+spline.lbands = matrix(NA, length(dis.grid), max.df)
+spline.rbands = matrix(NA, length(dis.grid), max.df)
+# estimate
+for (i in 3:max.df) {
+  spline.fits[[i]] = glm(nox ~ bs(dis, df = i), data = Boston)  # glm for CV
+  # predict fit and se bands
+  preds = predict(spline.fits[[i]], newdata = data.frame(dis = dis.grid),
+                  se.fit = T)
+  spline.preds[, i] = preds$fit
+  spline.lbands[, i] = preds$fit - 2*preds$se.fit
+  spline.rbands[, i] = preds$fit + 2*preds$se.fit
+}
+
+## plot the fits (starting df = 3)
+matplot(dis.grid, spline.preds[, 3:max.df], type = "l", lty = 1, col = 3:max.df, lwd = 2)
+legend("topright", legend = 3:10, col = 3:max.df, lwd = 2)
+matlines(dis.grid, spline.lbands[, 3:max.df], col = 3:max.df, lwd = 1, lty = 3)
+matlines(dis.grid, spline.rbands[, 3:max.df], col = 3:max.df, lwd = 1, lty = 3)
+# data plot
+points(Boston$dis, Boston$nox, pch = 4, col = "darkgrey", cex = 0.5)
+```
+
+Next, we report the corresponding RSS's.
+```{r}
+## RSS: it is easiest to use lm(). But here we want to try glm(); but it is safest to produce all bs() variables out of inline to make sure the model.matrix variable names match spline.fits[[]] variable names
+# initialize
+spline.rss = rep(NA, length = 10)
+# compute rss
+for (i in 3:10) {
+  mat = model.matrix(nox ~ bs(dis, df = i), data = Boston)
+  mat.names = names(coef(spline.fits[[i]]))
+
+  summary(spline.fits[[i]])$coefficients  [, 1]
+  coef.names = dimnames(summary(spline.fits[[i]])$coefficients)[[1]]
+  preds = mat[, coef.names] %*% summary(spline.fits[[i]])$coefficients[, 1]
+
+  resids = Boston$nox - preds
+  spline.rss[i] = sum(resids^2)
+}
+# print rss  
+spline.rss
+poly.rss[, 1]
+```
+
+
+## Part 9.f) 
+
+The training MSE is larger than splines with the same degrees of freedom.
+
+
+```{r}
+## CV
+set.seed(1)
+library(boot)
+#initialize
+spline.errors = rep(NA, length = max.df)
+# compute cv
+for (i in 3:max.df) {
+  spline.errors[i] = cv.glm(data = Boston, glmfit = spline.fits[[i]], K = 5)$delta[1]
+}
+```
+
+The warnings above arise because some of the test data lie outside the range of the training set. This could be a problem when ranges are really different. The cross-validation test MSE for degrees of freedom between 3 and 10 correspond to the 3rd to 10th elements of the vector below:
+```{r}
+# print cv
+spline.errors
+```
+
+
+
+Since the largest value of `dis` is far off from other points, we see if this might affect the cross-validation result. Hence, we compute the cross-validation errors again after excluding this point (we suppress the warnings this time though):
+
+
+```{r, warning=FALSE}
+## CV
+set.seed(1)
+#initialize
+spline.errors.trunc = rep(NA, length = max.df)
+# the max dis point exluded
+Boston.trunc = Boston[-which.max(Boston$dis), ]
+# compute cv
+for (i in 3:max.df) {
+  spline.errors.trunc[i] = cv.glm(data = Boston.trunc, glmfit = spline.fits[[i]], K = 5)$delta[1]
+}
+# print cv
+
+cat("\n")
+errs.mat = cbind(spline.errors, spline.errors.trunc)
+matplot(errs.mat, type = "b")
+```
+
+The first line above depicts the CV test error for the full sample, while the second depicts it when the single rightmost point is omitted. The first line might lead to the choice of 6, where the second leads to the choice of 5. Omitting the point results in worse fit for all models. This seems to corroborate that this point might be a leverage:
+
+```{r}
+plot(Boston$dis, hatvalues(spline.fits[[6]]))
+par(mfrow = c(2, 2))
+plot(spline.fits[[6]])
+```
+The point is not much of an outlier, but is very far off in the bottom-right figure above, indicating it is a leverage. Whether it is included in the test or training set, hence, could potentially make a large difference. Hence, we rely on the results of the trucated dataset, where this single observation is omitted, and choose 5 degrees of freedom.
+
+
+# Exercise 10
+This question asks for predicting (out-of-state) college tuition using the `College` dataset. The strategy in this question is to use subset selection on a linear model, then use `gam()` to fit a nonlinear model using the variables selected.  
+
+```{r}
+# Set-Up
+library(ISLR)
+names(College)
+str(College)
+cat("\n")
+summary(College$Outstate)  # in dollars
+# initilize
+library(leaps)
+```
+## Part 10.a)
+Forward stepwise selection on the training set:
+
+
+```{r}
+# split hte data
+set.seed(1)
+train = sample(c(T, F), size = nrow(College)/2, replace = T)
+test = !train
+
+# forward stepwise on train data
+regfit.full = regsubsets(Outstate ~ ., data = College, method = "forward", nvmax = 18,
+                         subset = train)
+# simple plot
+summary.regfit = summary(regfit.full)
+par(mfrow = c(1, 2))
+plot(summary.regfit$bic, lwd = 2, type = "b")  #  6 > 9;  13 with full data
+plot(summary.regfit$cp, lwd = 2, type = "b")  # 9 > 11; 13 with full data
+
+# plot: another way to see the simple plot and have an idea of what variable chosen or not
+plot(regfit.full, scale = "bic")
+plot(regfit.full, scale = "Cp")
+```
+Although using 9 variables minimizes BIC, the model with 6 variables seems to be good enough, since it is a simpler model, with a similar BIC. C~p~ implies choosing 11 variables, while 9 might be close enough. We look more closely at the values of the BIC and C~p~ for models with similar size to the minimizers:
+```{r}
+# zoom in for cp, since scale is too large above
+summary.regfit$cp[8:13]  # to be able to see it more clearly
+summary.regfit$bic[5:10]
+```
+6 is a reasonable choice according to the BIC, while according to C~p~ 11 might be the best choice (since the C~p~ for 11 is almost 15% smaller than the one for 9). As a compromise, we choose 9 which works good enough for both BIC and C~p~ criteria. The estimated model's coefficeints can be seen below:
+
+
+```{r}
+# coefficients: what are the chosen variables?
+coef(regfit.full, id = 9)
+names(coef(regfit.full, id = 9))
+```
+The variables that are excluded could (roughly) be found using
+```{r}
+fwd.names = c("Outstate", names(coef(regfit.full, id = 9)))
+fwd.ind = !(names(College) %in% fwd.names)
+names(College)[fwd.ind]
+```
+Note that the first variable above, `Private`, should not be there. It is a factor variable that is in fact included in the regression with id equal to 9, but its name is changed to `PrivateYes` to indicate how the dummy variable is defined.  
+It is in general worthwhile to keep track of what variable are factor variables, e.g. for possible changes that R commands make to their names.  
+Omission of some variables is easy to understand, for example due to similar definition and resulting high correlations:
+```{r}
+cor(College$Terminal, College$PhD)
+```
+
+## Part 10. b) 
+We estimate GAM on the training set. The formula can be written manually, especially since we have a few variables here; but that may be difficult when we have many variables. For expositional purposes, we see how the GAM formula can be retrieved dynamically from `regsubsets` output:
+
+```{r}
+library(gam)
+# leave out factor variable and the response
+gam.varnames = names(coef(regfit.full, id = 9))[-(1:2)]
+gam.form = as.formula(paste("Outstate ~ s(",                                # response and start
+                            paste0(gam.varnames, collapse = ", 3) + s(" ),  # quant. and middle
+                            ", 3) + Private"))                              # qual. and end
+                      
+gam.fit.df3 = gam(gam.form, data = College, subset = train)
+summary(gam.fit.df3)
+```
+
+```{r}
+plot.gam.df3 = plot(gam.fit.df3, se = T)
+```
+
+Next, we use the same scale for all variables to see which variables are more important.
+
+```{r}
+plot(gam.fit.df3, se = T, scale = 12000)
+```
+
+Two important things from the plots:  
+
+* Possibility of outliers and leverage points, e.g. for `Accept` and `Enroll`
+* Interaction and normalized variables
+    + interaction of private and other variables: private schools tuitions are expected to be more sensitive to changes
+    + rates of enrollment and acceptance
+* Small linear effects of some variables.
+* There are both demand and supply side effects influencing how the tuition is determined
+    + Apps ~~normalized by Enroll (to account for school size)~~ could proxy demand, 
+    + Supply would be the current capacity, which would equal `Enroll` if admission committee knows the percentage of students who accept the admssion offer
+    + The resulting endogeneity makes causal inference impossible
+
+The model estimated above used three degrees of freedom for all variables. After looking at the resulting plots, we try two other combinations of degrees of freedom. Below, we lower the degrees for some variables:
+```{r}
+gam.fit.df321 = gam(Outstate ~ s(Accept, 3) + s(Enroll, 3) + s(Books, 3) + s(Expend, 3) +  
+                            s(Terminal, 2) + s(perc.alumni, 2) + s(Room.Board, 2) +   
+                            Grad.Rate + Private,
+                 data = College, subset = train)
+summary(gam.fit.df321)
+plot(gam.fit.df321, se = T, scale = 12000)
+```
+
+We further lower degrees, by making all quadratic terms linear now. We also introduce some interactions. It makes sense intuitively that the pricing behavior of private schools be more or less sensitive to different predictors, for example because profit-making is expected to play less of a role in their decision making. Hence, we introduced interactions of being a private school with the linear terms. Then we picked those that seemed more promising in the linear regression to be included in GAM. Since this is done on the training set, we do not worry about overfitting. We will finally be able to evaluate whether the model works on the test data.
+```{r}
+gam.fit.df31 = gam(Outstate ~ s(Accept, 3) + s(Enroll, 3) + s(Expend, 3) +  
+                            Books*Private + Terminal + perc.alumni + Room.Board*Private +   
+                            Private + Private + Top10perc,
+                 data = College, subset = train)
+summary(gam.fit.df31)
+plot(gam.fit.df31, se = T, scale = 12000)
+```
+
+## Part 10.c) 
+We evaluate the models we estimated in the previous part.
+
+```{r}
+# Setup
+test.mse = rep(NA, length = 3)
+gam.models = list(gam.fit.df3, gam.fit.df321, gam.fit.df31)
+# predict for the test set
+for (i in 1:length(gam.models)) {
+  preds = predict(gam.models[[i]], newdata = College[test, ])
+  test.mse[i] = mean((College$Outstate[test] - preds)^2)
+}
+names(test.mse) = c("df=3", "df=3,2,1", "Interact")
+sqrt(test.mse)
+```
+The last GAM model that we used (the one with interactions) has the least error, as indicated by square roots of MSE above.
+```{r}
+mean(College$Outstate[test])
+```
+The model is doing a good job when comparing the average value of response to the squre root of MSE (which tends to be a bit higher than mean absolute value of differene), implying that the model has reasonable predictive power.  
+In the test set, the actual tuition deviates from the predicted tuition by approximately $1880, on average. The mean value of tuition across the schools in the test set implies that the estimate for the precentage error is less than 20%. This is pretty good, when we note that it also includes the irreducible error.
+
+
+## Part 10.d) 
+There is clear evidence for non-linearity in Acceptance, Enrollment and Expenditure and evidence of interaction between `Private` and some of the variables.  
+Future work could consider the interaction of `Private` with the non-linear variables, and how it affects the test MSE. The drawback of such interaction, however, is that we could not see ANOVA results for interactions.
+
+
+# Exercise 11
+Backfitting:
+
+```{r}
+# SEtup
+beta1 = -1
+beta2 = 3
+beta0 = 0
+x1 = rnorm(100)
+x2 = rnorm(100)
+eps = rnorm(100)
+y = beta0 + beta1*x1 + beta2*x2 + eps
+# initialize
+beta1hat = 3
+# find partial residual for x2
+r = y - beta1hat*x1
+beta2hat = coef(lm(r ~ x2))[2]
+```
+
+Below, we run the codes for parts e), f) and g) of Question 11. 
+
+```{r}
+# initialize
+n.iter = 1000
+beta1hat = -100
+param.values = matrix(NA, nrow = n.iter, ncol = 4, 
+                      dimnames = list(paste(1:n.iter),
+                                      c("beta0_1" , "beta1hat", "beta0_2", "beta2hat")))
+for (i in 1:n.iter) {
+  # First regression: partial residual for x2
+  r2 = y - beta1hat*x1
+  coef.1 = coef(lm(r2 ~ x2))
+  beta2hat = coef.1[2]
+  param.values[i, 1:2] = coef.1
+  # Second: partial for x1
+  r1 = y - beta2hat*x2
+  coef.2 = coef(lm(r1 ~ x1))
+  beta1hat = coef.2[2]
+  param.values[i, 3:4] = coef.2
+}
+c(beta1hat, beta2hat)
+c(beta1, beta2)
+```
+Plot of the estimated values can be see below. The convergence happens at an exponentially fast pace, so no matter from what iteration we start, we would see a jump from it to the next iteration and a relatively flat line afterwards. 
+To see the change, we start from the third set of fully backfitted models (otherwise, the plot would look flast starting at the second iteration) and focus on only one of the estimates to see the change (otherwise the scale would disable seeing much change):
+```{r}
+matplot(param.values[1:20, ], type = "l", lty = 1)
+coef.mult = coef(lm(y ~ x1 + x2))
+coef.mult
+abline(h = coef.mult, lty = 2)
+```
+The dotted lines depict the multiple regression results. Convergence happens very fast and lines are indistinguishable from the backfitting lines at the second iteration.
+
+
+# Exercise 12
+
+Number of required backfitting iterations depends on n and p. If n=p, multiple regression could not fit and backfitting would not lead to findng population parameters (for example, for n=p = 9, 800 and 8000 iterations both result in an error equal to 0.707). When n>p, backfitting finds the population parameters, but the more the dimensions are, i.e. where there is more overfitting, the more the iterations that are needed to achieve convergence (for example for p = 10 and n = 500, the error in 9 iterations is 2.606071e-11, while if we only change n to 50, the error in 9 iterations would be 0.002587096). *The code for this paragraph's numbers is not available. A variant on the code, which is convenient for drawing a plot is availble below:*
+
+```{r n.iter.func definition}
+### Define a function that gets n, p (req, and tol as input and outputs the number of iterations needed to achieve the target error, using randomly generated rnorm() for variables. max.n.iter is for the cases that do not converge.
+rm(list = ls())
+backfit.n.iter = function(n, p, tol, max.n.iter) {
+  ## Generate data
+  # initialize
+  set.seed(1)
+  # generate features
+  feat.mat = matrix(rnorm(n*p), nrow = n, ncol = p, dimnames = list(NULL, paste0("v", 1:p)))
+  beta0 = 1
+  Beta = rnorm(p)
+  # generate response
+  y = beta0 + feat.mat %*% Beta
+  # generate dataset
+  data.set = cbind(y, as.data.frame(feat.mat))
+  
+  ### compute multiple regression to compare with backfitting
+  coef.mult = coef(lm(y ~ ., data = data.set))
+  Beta.mult = coef.mult[-1]
+  beta0.mult = coef.mult[1]
+  
+  ### backfitting
+  ## intialize
+  # initial values for backfitting
+  Beta.back = rnorm(p)  # intial values for backfitting 
+  beta0.back = 1
+  names(Beta.back) = paste0("v", 1:p)
+  ## compute partial residuals
+  # backfitting iterations
+  n.iter = 0
+  err = 10^10  # initialize with a large number
+  while (err > tol & n.iter < max.n.iter) {
+    # one iteration over all features:
+    for (i in 1:p) {
+      # partial residual of vi:
+      r = y - feat.mat[, -i] %*% Beta.back[-i]
+      # Update the Beta.back vector for i'th variable
+      coef.vec = coef(lm(r ~ feat.mat[, i]))
+      Beta.back[i] = coef.vec[2]  # since the first is for the intercept
+      beta0.back = coef.vec[1]
+    }
+    err = max(max(abs(Beta.back - Beta.mult)), abs(beta0.mult - beta0.back))
+    n.iter = n.iter + 1
+  }
+  if (n.iter >= max.n.iter) { 
+    n.iter = paste0("Covergence Not Achieved in", max.n.iter, " Iterations")
+  }
+  n.iter
+}
+```
+ 
+
+A point to remember is that when we computed the partial residual, we only deducted the features and exluced the intercept terms.  
+A good plot would fix p, i.e. p = 100, and change n/p. Since p = 100 would make the code time-consuming, I plot the result using p = 10. 
+
+```{r, cache = T, dependson = "n.iter.func definition"}
+p = 10
+n_p = seq(from = 1.2, to = 20, length = 50)
+n.vec = ceiling(p*n_p)
+n.iter.vec = rep(NA, length = length(n.vec))
+
+for (i in 1:length(n.vec)) {
+  n.iter.vec[i] = backfit.n.iter(n = n.vec[i], p, tol = 1e-3, max.n.iter = 500)
+}
+n.vec[2]
+plot(n_p, n.iter.vec, xlab = "n/p", ylab = "No. of Iterations", type = "l")
+```
+
+Below is a closer look at how the speed of convergence decreases as we increase n/p.
+```{r, cache = T}
+p = 10
+n_p = seq(from = 1.2, to = 1.5, length = 20)
+n.vec = ceiling(p*n_p)
+n.iter.vec = rep(NA, length = length(n.vec))
+
+for (i in 1:length(n.vec)) {
+  n.iter.vec[i] = backfit.n.iter(n = n.vec[i], p, tol = 1e-3, max.n.iter = 500)
+}
+plot(n_p, n.iter.vec, xlab = "n/p", ylab = "No. of Iterations", type = "l")
+```
+
