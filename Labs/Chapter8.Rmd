@@ -10,7 +10,7 @@ output: html_notebook
 ---
 
 # Setup
-We work on the `Carseats` data, and we are all about growing a tree!
+We work on the `Carseats` data, and we are all about growing a tree from carseats!
 
 ```{r}
 rm(list = ls())
@@ -45,25 +45,29 @@ tree.carseats = tree(High ~ . - Sales, data = Carseats)
 summary(tree.carseats)
 ```
 
-How is the residual mean deviance computed?
+We see residual mean deviance in the output. How is the residual mean deviance computed? It is equal to two times the ratio of log-likelihoods of the saturated model to the model being considered:
 
 $$
 Dev = 2\times \frac{\mathcal{L} ( y|\theta_s)}{\mathcal{L}(y|\theta_0)}
 = 2\times \frac {1} { \log\Big(\prod_{m,k} \big({\hat{p}_{mk}}^{n_{mk}}\big)\Big) }
-= -2\sum_m \sum_k n_{mk}\log \hat{p}_{mk}
+= -2\sum_m \sum_k n_{mk}\log \hat{p}_{mk}\,,
 $$
-since deviance is equal to two times the ratio of log-likehoods, where $\theta_s$ is the parameters for the saturated model, and $\theta_0$ is the one for the model we consider (which is of course nested in the saturated model. The probability distributions are assumed to be multimonial. The saturated model is the one with a box for each point, which results in perfect fit and the estimates $\hat{p}_{mk}$ all being equal to 1. The mean deviance is computing by dividing deviance by $n - |T|$.  
+
+where $\theta_s$ is the vector of parameters for the saturated model, and $\theta_0$ is the one for the model we consider (which is of course nested in the saturated model). The probability distributions are assumed to be multimonial. The saturated model is tree with a leaf for every observation. Hence, the saturated tree perfectly fits the data and its estimates $\hat{p}_{mk}$ are all equal to 1. The mean deviance is computed by dividing deviance by $n - |T|$.  
 Next, we graphically represent the tree:
 ```{r}
 plot(tree.carseats)
 text(tree.carseats, pretty = 0, cex = 0.6)
 ```
-This graphs represents one of the most attractive things about trees, the fact tht they could be displayed. Shelving location appears to be the most important indicator of Sales. The option `pretty = 0` makes the graph disply category names, rather than single letters for each category. 
+The ability to visualize a tree is one of the most attractive properties of trees. Shelving location appears to be the most important indicator of Sales. The option `pretty = 0` makes the graph display category names, rather than single letters for each category. More details on the tree can be seen by typing the tree's name:
 
 ```{r}
+summary(Carseats$High)
 tree.carseats
 ```
 Each node is represented with a number. One can trace back a node by dividing this number by two and taking the integer part of it. The resulting number denotes the parent node. By sequentially doing this, we can trace the node back to the root. * denotes the terminal nodes.  
+The other information are the number of observations in each branch, the deviance, the overall prediction for the branch, and the fraction of leaves in that branch that take on values "NO" and "YES", respectively.  
+Why is "NO" presented before "YES"? It is probably due to the way the variable is defined. However, which value is the baseline does not make much of a difference, here (although it makes a difference in other cases, e.g. when we want to interpret linear regression results).
 
 What about the test error rate?
 ```{r}
@@ -86,18 +90,26 @@ set.seed(3)
 cv.tree(tree.carseats, FUN = prune.misclass)
 ```
 
-The `FUN` argument in `cv.tree` determines the nested sequence of subtrees and is the output of the command `prune.tree()`, which has two forms:  
+The `FUN` argument in `cv.tree` determines the nested sequence of subtrees and is the output of the command `prune.tree()`, which has uses either of the following estimates for error: 
 
-1. Using deviance for pruning, which is the default
-2. Using misclassification error for pruning which is done through equating the argument `FUN` to `prune.tree(method = "misclass")` or its short form `prune.misclass`
+1. Deviance, which is the default
+2. Misclassification error, which is done through equating the argument `FUN` to either `prune.tree(method = "misclass")` or its short form `prune.misclass`
 
-`$size` is the number of leaves, and `$k` corresponds to $\alpha$. The output `$dev` corresponds to misclassification in this case, despite its name. 
+In the output of `cv.tree` above, `$size` is the number of leaves, and `$k` corresponds to $\alpha$. The output `$dev` corresponds to the error, which is misclassification error in this case, despite its name. The value of $\alpha = -\infty$ would be the largest possible tree with RSS = 0, which has 27 leaves here.
 
 ## Summary
 
-* `ifelse`
-* After fitting the tree, we can plot it, see its nodes, compute test error rate, and prune it
-* `type = class` used to get factor predictions for a tree
-* argument `FUN = prune.miscalss` for `cv.tree`
-* remember to set the seed before doing CV
+* We can use `ifelse` to create new factor variables.
+    + Remember to merge it with the data set
+* After fitting the tree, we learned how to
+    + plot it
+    + see its nodes and details 
+    + compute test error rate
+        - In `predict.tree()`, the argument `type = class` used to get factor predictions
+    + prune it: use `cv.tree` with the argument `FUN = prune.misclass`
+* Remember to set the seed before doing validation set approach or CV
+
+
+
+
 
