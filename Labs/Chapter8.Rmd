@@ -1,13 +1,19 @@
 ---
 title: "Chapter 8 Lab"
-html_document:
-  toc: true
-  toc_depth: 2
-  toc_float:
-    collapsed: false
-    smooth_scroll: false
-output: html_notebook
+output: 
+  html_document:
+    # highlight: pygments
+    # code_folding: hide
+    # number_sections: true
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+  html_notebook: default
 ---
+
+<!--  -->
 
 # Setup
 We work on the `Carseats` data, and we are all about growing a tree from carseats!
@@ -17,6 +23,7 @@ rm(list = ls())
 search()
 library(ISLR)
 library(tree)
+library(gmodels)
 # knowing the data and variables
 dim(Carseats)
 summary(Carseats)
@@ -27,6 +34,8 @@ hist(Carseats$Sales)  # not much skewed
 # attaching the data: not recommended, but we follow the ISLR book
 attach(Carseats)
 ```
+
+# Decision Trees: Classification
 
 After the initial setup, we create a dummy variable from `Sales` to work on as the response.
 ```{r}
@@ -44,6 +53,8 @@ Time to grow a tree:
 tree.carseats = tree(High ~ . - Sales, data = Carseats)
 summary(tree.carseats)
 ```
+
+What is the stopping criteria? The default criterion is used above. The stopping criterion is controlled by the argument `control = tree.control(...)` for `tree()` whose default is to have `tree.control(nobs, mincut = 5, minsize = 10, mindev = 0.01)`.
 
 We see residual mean deviance in the output. How is the residual mean deviance computed? It is equal to two times the ratio of log-likelihoods of the saturated model to the model being considered:
 
@@ -84,10 +95,13 @@ table(tree.preds, test.high)
 ```
 The test error rate estimate is 72%, while the training error rate was estimated to be 91%. 
 
+## The Choice of Sub-Tree
 Pruning the tree is done through cross-validation over a sequence of trees found by cost-complexity pruning.
 ```{r}
 set.seed(3)
-cv.tree(tree.carseats, FUN = prune.misclass)
+cv.carseats = cv.tree(tree.carseats, FUN = prune.misclass)
+names(cv.carseats)
+cv.carseats
 ```
 
 The `FUN` argument in `cv.tree` determines the nested sequence of subtrees and is the output of the command `prune.tree()`, which has uses either of the following estimates for error: 
@@ -95,21 +109,252 @@ The `FUN` argument in `cv.tree` determines the nested sequence of subtrees and i
 1. Deviance, which is the default
 2. Misclassification error, which is done through equating the argument `FUN` to either `prune.tree(method = "misclass")` or its short form `prune.misclass`
 
-In the output of `cv.tree` above, `$size` is the number of leaves, and `$k` corresponds to $\alpha$. The output `$dev` corresponds to the error, which is misclassification error in this case, despite its name. The value of $\alpha = -\infty$ would be the largest possible tree with RSS = 0, which has 27 leaves here.
+In the output of `cv.tree` above, `$size` is the number of *terminal* nodes, and `$k` corresponds to $\alpha$, the tuning parameter in cost complexity pruning. The output `$dev` corresponds to the error, which is misclassification error in this case, despite its name. The value of $\alpha = -\infty$ would be the largest possible tree with RSS = 0, which has 27 leaves here.
+
+```{r}
+par(mfrow = c(1,2))
+plot(cv.carseats$size, cv.carseats$dev, type = "b")
+plot(cv.carseats$k, cv.carseats$dev, type = "b")
+```
+
+So the tree with 9 terminal nodes results in the lowest cross-validation error rate. 
+```{r}
+tree.prune = prune.misclass(tree.carseats, best = 9)
+plot(tree.prune)
+text(tree.prune, pretty = 0)
+tree.prune
+```
+The pruned tree becomes more interpretable. The test error for the tree with 9 leaves:
+```{r}
+tree.preds = predict(tree.prune, newdata = Carseats[test, ], type = "class")
+table(tree.preds, High[test])
+(94 + 60)/ 200
+```
+The prunin process has not only made the tree more interpretable, but it has also improved the classification accuracy. The prediction accuracy falls if we increase the value of `best`:
+```{r}
+prune.carseats.15 = prune.misclass(tree.carseats, best = 15)
+plot(prune.carseats.15)
+text(prune.carseats.15, pretty = 0)
+prune.pred.15 = predict(prune.carseats.15, type = "class", newdata = Carseats[test, ])
+tab = table(prune.pred.15, High[test])
+sum(diag(tab))/sum(tab)
+```
+
+
+
+
+
 
 ## Summary
 
-* We can use `ifelse` to create new factor variables.
-    + Remember to merge it with the data set
-* After fitting the tree, we learned how to
-    + plot it
-    + see its nodes and details 
+* Creating qualitative variable: We can use `ifelse` to create new factor variables.
+    + Remember to merge the generated variables with the data set
+* After fitting the tree and seeing the fit's summary, we learned how to
+    + plot it    
+        - The `plot.tree()` command will plot the tree without text.
+        - How to add details? We use `text.tree()` to add text.
+            - Factors by name: option `pretty = 0`
+    + see its nodes and details: type the name of the tree 
     + compute test error rate
         - In `predict.tree()`, the argument `type = class` used to get factor predictions
-    + prune it: use `cv.tree` with the argument `FUN = prune.misclass`
+    + do cost complexity pruning: use `cv.tree` with the argument `FUN = prune.misclass`
+        - `cv.tree(...)$k` denotes the number of terminal nodes
+    + depict the sub-tree with lowest error.
+        - `prune.misclass(tree_name, best = best_leaves)`, where best_leaves is the number of terminal nodes that result in lowest cross-validation error 
 * Remember to set the seed before doing validation set approach or CV
 
 
 
+# Regression Trees
+We use the `Boston` datat set.
+```{r}
+library(MASS)
+library(tree)
+```
+
+*Grow on the training set*:
+```{r}
+set.seed(1)
+train = sample(nrow(Boston), size = nrow(Boston)/2)
+test = -train
+tree.boston = tree(medv ~ ., data = Boston, subset = train)
+summary(tree.boston)
+```
+Three variables are used and a tree with 8 leaves is grown. As it is the case with linear regression, deviance is equal to RSS over the variance of error (or equal to RSS, if we use an alternative defintion for deviance), under normal distribution. In linear regression, the assumption was that we have a linear model with Gaussian errors. Under this assumption, we could verify that  
+
+$$
+Dev = 2\times \frac{\mathcal{L} ( y|\theta_s)}{\mathcal{L}(y|\theta_0)}
+= 2\times \frac {-1}{\sigma^2} \big(\mathrm{RSS}_s - \mathrm{RSS}_0 \big) 
+= \frac{1}{\sigma^2} \mathrm{RSS}_0
+\,,
+$$
+  
+What about regression trees? It appears that deviance would equal the RSS, under the probability model that considers that the points at each leaf are distributed normally. For details and references (e.g. Venables and Ripley) see [here](https://stats.stackexchange.com/questions/6581/what-is-deviance-specifically-in-cart-rpart).
+
+*Plot the tree*:
+```{r}
+plot(tree.boston)
+text(tree.boston, pretty = 0)
+```
+
+*Cost complexity pruning*:
+```{r}
+set.seed(2)
+cv.boston = cv.tree(tree.boston)
+best.leaves.num = cv.boston$size[which.min(cv.boston$dev)]
+cv.boston
+best.leaves.num
+plot(cv.boston$size, cv.boston$dev, type = "b")
+```
+The algorithm chooses the sub-tree with 8 leaves, which is the tree itself. Since the test MSE is very close for a sub-tree with 7 leaves, choosing this smaller tree might be better. We depict the three-leaved tree below. But in order to be consistent with the book, we use the 8-leaved tree to compute the test error.
+
+*Depicting the chosen sub-tree*:
+```{r}
+prune.boston = prune.tree(tree.boston, best = 7)
+plot(prune.boston)
+text(prune.boston, pretty = 0)
+```
+
+*Test error for the chosen sub-tree*
+```{r}
+chosen.tree = tree.boston  # to be consistent with the book, the full tree is considered
+yhat = predict(chosen.tree, newdata = Boston[test, ])
+test.y.boston = Boston[test, "medv"]
+mse.boston = mean((yhat - test.y.boston)^2)
+mse.boston
+```
+*Visualization of the fit*
+```{r}
+plot(yhat, test.y.boston)
+abline(0, 1)
+```
+Note the discreteness in fitted values, which is a consequence of having a single tree.
+
+Note that we do not specify `prune.misClass`, as we did for classication. The cases where did so was in:    
+
+1. `predict.tree()`
+2. `cv.tree`
+
+
+## Cautions:
+
+* identifying the best tree: `which.min(cv.boston$dev)` gives the wrong answer. Why? What should we use?  
+    + note that in pruning, size (`cv.tree$size`) is decreasing, so the rationale behind using `which.min` alone breaks apart.    
+* When comparing fit and actual values, draw the 45 degrees line, using `abline`. Otherwise, due to different units on axes, the relationship might not look as meaningful.
+
+
+# Bagging and Random Forests
+We first load the library:
+```{r, echo=TRUE, warning=FALSE}
+library(randomForest)
+library(MASS)
+dim(Boston)
+```
+
+*estimate bagging*:
+```{r}
+bag.boston = randomForest(medv ~ ., data = Boston, subset = train,
+                          mtry = 13, importance = TRUE)
+bag.boston
+```
+
+*evaluate bagging*:
+```{r}
+bag.yhat = predict(bag.boston, newdata = Boston[test, ])
+test.y.boston = Boston[test, "medv"]
+plot(bag.yhat, test.y.boston)
+abline(0, 1)
+mean((bag.yhat - test.y.boston)^2)
+```
+The minimal change with the book results are due to the change in the versions.
+
+*estimate rf*:
+```{r}
+rf.boston = randomForest(medv ~ ., data = Boston, subset = train, 
+                         mtry = 6, importance = TRUE, ntree = 500)
+rf.boston
+```
+The default for $m$, i.e. `mtry`, is $p/3$ for regression and $\sqrt(p)$ for classificatioon. `ntree` is put equal to its default to allow comparability with the book's results.
+
+*evaluate rf*:
+```{r}
+yhat.rf = predict(rf.boston, newdata = Boston[test, ])
+mean((yhat.rf - test.y.boston)^2)
+```
+Again, there is a small difference with the book. Random forests improves accuracy.
+
+*variable imporatnce in rf*:
+```{r}
+importance(rf.boston)
+```
+The first column shows a measure of importance, which uses out-of-bag data. Hence, it does not use the training data and can be thought of as an estimator for percentage increase in test MSE. In contrast, the second column,uses the training data.  
+%IncMSE captures the average increase in the out-of-bag MSE, when a given variable is exluded from the model. This measure was not mentioned in the chapter.  
+The second measure, IncNodePurity, is the measure of importance introduced in the chapter, which captures the total increase in node impurity.
+
+```{r}
+varImpPlot(rf.boston)
+```
+The economic status of the community and the size of houses are by far the most important predictors.
+
+
+## Summary
+* the library's name, `randomForest` is not plural
+* no `summary()` for random forest fit
+* new arguments for fit here are `mtry`, `importance` and `ntree`
+* `varImpPlot` to plot the variable importance
+
+
+# Boosting
+The theory behind boosting is not covered much in ISLR. Therefore, some of the concepts we will explore here will lack the theoretical underpinnings.  
+
+fit:
+```{r}
+library(gbm)
+set.seed(1)
+boost.boston = gbm(medv ~ ., data = Boston[train, ], distribution = "gaussian",
+                   n.trees = 5000, interaction.depth = 4)
+```
+
+
+relative importance:
+```{r}
+summary(boost.boston)
+```
+
+partial dependence plots:
+```{r}
+par(mfrow = c(1,2))
+plot(boost.boston, i.var = "rm")
+plot(boost.boston, i.var = "lstat")
+```
+These partial dependence plots show the marginal effects of the variables `rm` and `lstat` at the average of other variables, i.e. after integrating out all other variable, except the single one for which the plot is drawn. The interpretation for these plots would be similar to the one for linear regression coefficients, enabling the "having other variables fixed" interpretation; as expected, in least squares regression, partial dependence plots would look like straght lines.  
+
+test error:
+```{r}
+yhat.boost = predict(boost.boston, newdata = Boston[test, ],
+                     n.trees = 5000)
+mean((yhat.boost - test.y.boston)^2)
+```
+
+different learning speed:
+```{r}
+boost.boston = gbm(medv ~ ., data = Boston[train, ], interaction.depth = 4,
+                   distribution = "gaussian", n.trees = 5000, shrinkage = 0.2,
+                   verbose = FALSE)
+yhat.boost = predict(boost.boston, newdata = Boston[test, ],
+                     n.trees = 5000)
+mean((yhat.boost - test.y.boston)^2)
+                   
+```
+
+
+## Summary
+* The library is `gbm`
+* We estimated the model, saw the relative influence statistics, and depicted partial dependence plots.
+* `gbm` does not accept the argument `subset`
+* `distribution`, `n.trees`, `shrinkage`, `interaction.depth` with default values `"bernoulli"`, `100`, `0.001`, `1`.
+* Set the `distribution` argument to `"gaussian"` if regression and to `"bernouli"` if classification. 
+* Partial dependence plots can be drawn using `plot.gbm()` with the name of the variable specified in the argument `i.var`
+* The argument `n.trees` in `predict.gbm` is used for specifying how many trees from the boosted sequence to use in prediction. As a result, it should be lower than the number used for fitting the boosted model.
 
 
