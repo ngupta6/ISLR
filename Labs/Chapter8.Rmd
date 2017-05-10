@@ -1,6 +1,9 @@
 ---
 title: "Chapter 8 Lab"
 output: 
+  pdf_document:
+    toc: true
+    toc_depth: 2
   html_document:
     # highlight: pygments
     # code_folding: hide
