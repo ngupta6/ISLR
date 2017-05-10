@@ -236,7 +236,7 @@ Note that we do not specify `prune.misClass`, as we did for classication. The ca
 2. `cv.tree`
 
 
-## Cautions:
+## Caution
 
 * identifying the best tree: `which.min(cv.boston$dev)` gives the wrong answer. Why? What should we use?  
     + note that in pruning, size (`cv.tree$size`) is decreasing, so the rationale behind using `which.min` alone breaks apart.    
