@@ -1,21 +1,30 @@
 ---
-title: "Chapter 8 Lab"
-output: 
+title: "Chapter 8 Applied Exercises"
+output:
+  html_notebook: default
   html_document:
-    # highlight: pygments
-    # code_folding: hide
-    # number_sections: true
-    toc: true
+    toc: yes
     toc_depth: 2
     toc_float:
-      collapsed: false
-      smooth_scroll: false
-  html_notebook: default
+      collapsed: no
+      smooth_scroll: no
 ---
 
 <!--  -->
 
-# Exercise 3)
+To start with a clean session, we first remove all packages except the base R packages (we will load anything needed later) and all variables.
+```{r}
+rm(list = ls())
+pkgs = names(sessionInfo()$otherPkgs)
+if (!is.null(pkgs)) {
+  detach_list <- paste0("package:", pkgs)
+  lapply(detach_list, FUN = detach, character.only = TRUE)
+}
+```
+
+# Exercise 3
+
+
 
 ```{r}
 p = seq(0,1, length = 100)
@@ -27,4 +36,783 @@ error.mat = cbind(gini, err, entropy)
 matplot(p, error.mat, xlab = expression(italic(hat(p)[mk])), type = "l", lwd = 2, col = 1:3, lty = 1:3)
 legend("topright", legend = c("Gini", "Classification", "Entropy"), lwd = 2, col = 1:3, lty = 1:3) 
 ```
-For seeing how to write math on the plot, type `?plotmath`. Pairwise minimum command `pmin` could be used above instead of the `apply()` function.
+To see how to write mathematical expressions on a plot, type `?plotmath`. Pairwise minimum command `pmin` could be used above instead of the `apply()` function.  
+
+# Exercise 7
+To see not only how changes in the number of trees and $m$ affect the test error, but also how they interact, we depict them on the same plot. We find the test MSE as a function of the number of trees for values $m = p, p/2, \sqrt{p}$.
+```{r, cache = TRUE}
+library(randomForest)
+library(MASS)
+# define test and train
+set.seed(1)
+train = sample(1:nrow(Boston), size = nrow(Boston)/2)
+test = -train
+test.y = Boston$medv[test]
+# Grids for ntree and mtry
+(ntree_seq = seq(1, 1000, by = 20))
+(mtry_seq = c(13, round(13/2), round(sqrt(13))))
+err_mat = matrix(NA, nrow = length(ntree_seq), ncol = length(mtry_seq),
+                 dimnames = list(NULL, NULL))
+# error estimates for the grid
+for (i_tree in 1:length(ntree_seq)) {
+  for (j_mtry in 1:length(mtry_seq)) {
+    rf_boston = randomForest(medv ~ ., data = Boston, ntree = ntree_seq[i_tree], 
+                               mtry = mtry_seq[j_mtry], subset = train)
+    rf_pred = predict(rf_boston, newdata = Boston[test, ])
+    err_mat[i_tree, j_mtry] = mean((rf_pred - test.y)^2)
+  }
+}
+```
+
+```{r}
+matplot(ntree_seq, err_mat, type = "l", lty = 1, col = c("blue", "darkgreen", "brown"), lwd = 1, ylim = c(10,20))
+legend("topright", legend = paste0("m = ", mtry_seq), col = c("blue", "darkgreen", "brown"), lwd = 1)
+```
+
+Using 400 trees is sufficient to give good performance and $m \simeq p/2= 6$ leads to the best test MSE. Random forest outperforms bagging in this example. 
+
+
+<!-- This part is not very useful for this exercise (so it is excluded from output), but might be a good practice in plotting:
+```{r, cache = TRUE}
+library(randomForest)
+library(MASS)
+# define test and train
+set.seed(1)
+train = sample(1:nrow(Boston), size = nrow(Boston)/2)
+test = -train
+test.y = Boston$medv[test]
+# Grids for ntree and mtry
+(ntree_seq = seq(1, 51, by = 2))
+(mtry_seq = seq(1, 13, by = 1))
+err_mat = matrix(NA, nrow = length(ntree_seq), ncol = length(mtry_seq),
+                 dimnames = list(NULL, NULL))
+# error estimates for the grid
+for (i_tree in 1:length(ntree_seq)) {
+  for (j_mtry in 1:length(mtry_seq)) {
+    rf_boston = randomForest(medv ~ ., data = Boston, ntree = ntree_seq[i_tree], 
+                               mtry = mtry_seq[j_mtry], subset = train)
+    rf_pred = predict(rf_boston, newdata = Boston[test, ])
+    err_mat[i_tree, j_mtry] = mean((rf_pred - test.y)^2)
+  }
+}
+err_mat
+persp(x = ntree_seq, y = mtry_seq, err_mat, theta = 0, phi = 50)
+```
+  
+The 3D plot shows that a very small $m$ would result in large error, and the error falls as we increase $m$. This plot is, however, difficult to interpret. So we make an attempt toward drawing 2D plots which could reflect the interaction between the two variable of interest.  
+In order to use the pacakge `ggplot2`, we need to tidy the data first, i.e. make each row of the data represent one point.  
+Suppose we have a grid $x = \{x_i\}_{i=1}^n$ on the X-axis and $y = \{y_i\}_{i=1}^q$ on the y-axis and a matrix $Z_{n\times q} = [z_{ij}]_{ij}$ where $z_{ij} = f(x_i, y_j)$. The goal is to represent each point as a single row, i.e. make a one-to-one correspondence between the grids, i.e. between vectors $x$ and $y$, and also between the grids and the matrix $Z$. To achieve this, we create a matrix $X_{n \times q}$ out of vector $x$ by copying $x$ to each column of $X$. We also create $Y$ by copying the vector $y$ to each row of the matrix $Y_{n \times q}$.  
+Now let $x$ be the number of splits and $y$ equal to $m$, the number of predictors considered in each split. We have
+
+```{r}
+X = matrix(ntree_seq, nrow = length(ntree_seq), ncol = length(mtry_seq))
+Y = matrix(mtry_seq, nrow = length(ntree_seq), ncol = length(mtry_seq), byrow = TRUE)
+head(X)
+head(Y)
+```
+  
+Note the use of `byrow = TRUE`. Now that all elements of matrices `X`, `Y` and `err_mat` correspond, we generate a data frame by converting all these matrices to columns:
+```{r}
+df_tree = data.frame(num_trees = c(X), num_vars = c(Y), mse = c(err_mat))
+head(df)
+```
+
+
+We can use the data frame `df_tree` in `ggplot2` to draw different plots.
+```{r}
+library(ggplot2)
+ggplot(data = df_tree) + 
+  geom_line(mapping = aes(x = num_trees, y = mse)) +
+  facet_wrap(~num_vars)
+```
+
+Using the number of variables as the facet, we could see how the number of trees affect the error estimate. By increasing the number of trees to 5, we see a considerable improvement in accuracy for different levels of $m$, and the improvement slows down for larger number of trees.  
+We might be tempted to state that increasing the number of variables does not have much effect on reducing the error for $m$ greater than 4, implying that $m=4$ might be a good choice. However, note that this is not the best plot for making this conclusion. The y-axis scale is too large to be able to distinguish the differences between the error values for large enough values of `num_trees` and `num_vars`. To see how the plot above might hide such information, consider `num_trees` as the facet:
+
+```{r}
+ggplot(data = df_tree) + 
+  geom_line(mapping = aes(x = num_vars, y = mse)) +
+  facet_wrap(~num_trees)
+```
+Using the number of trees as the facet, we see that the error has a downward trend and stabilizes at about 5 variables, given the values of `num_trees`. We can further adjust the scale on the y-axis to see the trend. We could also explore how changing the random seed might affect our conclusion, or investigate the effect of increasing bootstrap samples, but we will not purue either of these issues here.
+
+-->
+
+# Exercise 8
+## Part 8.a)
+We will predict `Sales` in the `Carseats` data, treating it as a quantitative variable.
+```{r}
+library(ISLR)
+library(tree)
+# split the data
+set.seed(1)
+train = sample(1:nrow(Carseats), size = nrow(Carseats)/2)
+test = -train
+test.y = Carseats$Sales[test]
+```
+
+
+## Part 8.b)
+
+```{r}
+# fit regression tree
+tree.carseats = tree(Sales ~ ., data = Carseats, subset = train)
+tree.carseats
+```
+
+What if we use Gini index for growing the tree?
+```{r}
+tree.carseats_gini = tree(Sales ~ ., data = Carseats, subset = train, split = "gini")
+tree.carseats_gini
+```
+
+It leads to no partitioning! Hence, it seems best to use other packages such as `rpart` for splitting according to the Gini index. It is also not clear to me the default splitting accroding to deviance is equivalent to cross-entropy. A little algebra shows that deviance contribution of each region $R_m$ should be normalized by $n_m$ to become equivalent to cross-entropy.   
+As a result of these points, although the package `tree` could be a strating point, it is not my choice for final results in a regression tree. However, we continue to use the package `tree` and the default for its argument `split` which is `deviance`.
+```{r}
+# plot the tree
+plot(tree.carseats)
+text(tree.carseats, pretty = FALSE, cex = 0.6)
+# 
+```
+  
+Similar to the classification tree considered in the chapter's lab, shelving location seems to be the most important variable. The first branch differentiates the `Good` locations from `Medium` and `Bad` locations. Price also appears to be important, as many branches distinguish levels of price.  
+
+Advertising, which is potentially an important decision variable, is correlated with sales on a medium range of prices for `Good` shelving locations. It is expected that advertising would affect segments of the market that face less price competition by differentiating their products. Hence, as expected, advertising is not likely to affect the low-end products which are likely to compete through prices and lack much brand recognition. On the other hand, the very high-end products are likely to be produced in a smaller scale, which might not make advertising on a large scale worthwhile.  
+
+```{r}
+# predict for test observations
+tree_preds = predict(tree.carseats, newdata = Carseats[test, ])
+# test MSE:
+mse_tree = mean((tree_preds - test.y)^2)
+mse_tree
+```
+
+## Part 8.c)
+
+Now we prune the tree to see whether we can improve prediction accuracy.
+```{r}
+set.seed(1)
+cv_carseats = cv.tree(tree.carseats)
+cv_carseats
+plot(cv_carseats$size, cv_carseats$dev, type = "b")
+```
+
+The cross-validation MSE estimates is minimized for 8 splits.
+
+```{r}
+# find the pruned tree
+prune_carseats = prune.tree(tree.carseats, best = 8)
+# predict for the pruned tree
+prune_preds = predict(prune_carseats, newdata = Carseats[test, ])
+# test mse for the pruned tree
+mse_prune_carseats = mean((prune_preds - test.y)^2)
+mse_prune_carseats
+```
+It results in larger test MSE, so seems not to improve accuracy (for this specific test set).
+
+
+## Exercise 8.d)
+```{r}
+library(randomForest)
+set.seed(1)
+bag_carseats = randomForest(Sales ~ ., data = Carseats, subset = train,
+                            mtry = ncol(Carseats)-1, ntree = 500, importance = TRUE)
+preds_bag_carseats = predict(bag_carseats, newdata = Carseats[test, ])
+mse_bag_carseats = mean((preds_bag_carseats - test.y)^2)
+mse_bag_carseats
+```
+Using bagging would improve the prediciton accuracy.   
+Note that we set `mtry` equal to number of all the predictors, which is supposed to give us the bagging estimator, which is a special case of random forest estimator. However, it appears that doing so would not exactly result in a bagging estimator, as introduced in the textbook. We would expect the baggin estimator to be certain, since there is no randomness when all predictors are considered in each split. However, it appears that the algorithm for `randomForest` generates other sources of randomness. That is why we have set the seed in the code chunk above.  
+If we do not set the random seed, we would get different results each time we we use `randomForest()` even for maximum value of `mtry` and `ntree` being equal to one.  
+Now we determine which variables are most important:
+```{r}
+importance(bag_carseats)
+```
+
+```{r}
+varImpPlot(bag_carseats)
+```
+
+The variables `Price` and ShelveLoc` appear to be the most important variables according to both measures, one based on contribution of the variable to the out-of-bag estimate of the test error (on the LHS) and the other based on contribution of the variable to the total node impurity in the training data (on the RHS).  
+The two importance measure generally yield similar results in terms of relative importance of the variables in determining sales. An exception is the variable `US` which is more important according to the OOB estimates.
+
+## Part 8.e)
+
+```{r 8e}
+set.seed(1)
+rf_carseats <- randomForest(Sales ~ ., data = Carseats, subset = train,
+                            ntree = 500, importance = TRUE)
+preds_rf_carseats <- predict(rf_carseats, newdata = Carseats[test, ])
+mse_rf_carseats <- mean((preds_rf_carseats - test.y)^2)
+mse_rf_carseats
+importance(rf_carseats)
+```
+```{r 8e_impPlot}
+varImpPlot(rf_carseats)
+```
+
+The random forest estimator has larger estimate for test MSE, but leads to similar relative importance for variables. The optimal value of `m` would depend on the bias-variance trade-off: the lower the number of variables considered in each split, the higher the variance, but the lower the correlation betweeen variables and as a result, the variance of the estimator.  
+Below, we see how the prediction accuracy changes with changes in `m`:
+```{r 8e_Mse}
+set.seed(1)
+Mse_rf_carseats <- rep(NA, length = 10)
+for (i in 1:10) {
+  rf_temp <- randomForest(Sales ~ ., data = Carseats, subset = train,
+                           mtry = i, ntree = 500, importance = TRUE)
+  preds_temp = predict(rf_temp, newdata = Carseats[test, ])
+  Mse_rf_carseats[i] = mean((preds_temp - test.y)^2)
+}
+plot(1:10, Mse_rf_carseats, xlab = "m", type = "b")
+```
+The bagging estimator appears to have the lowest (estimate of) test MSE among different random forest estimators. Hence, the decrease is variance due to reducing `m` is not enough to offset the larger bias resulted by considering fewer variables in each split.  
+This might be related to the idea of why we would use small values of `m` when we have many highly correlated variables (mentioned in the textbook). On one hand, we find `m` to be the largest here and on the other hand, we have a small number of observations and variables, and the variables are not highly correlated 
+
+# Exercise 9
+
+```{r}
+rm(list = ls())
+library(ISLR)
+# knowing the data
+dim(OJ)  # 1070*18
+sum(is.na(OJ))
+summary(OJ)  # Purchase and Store7 factor variables
+# knowing the response
+contrasts(OJ$Purchase)  # MM is 1 and CH is 0; MM
+```
+
+## Part 9.a)
+```{r 9a_train}
+train = sample(1:nrow(OJ), size = 800)
+test = -train
+test_purchase = OJ$Purchase[test]
+```
+
+## Part 9.b)
+```{r 9b_tree}
+library(tree)
+tree_oj <- tree(Purchase ~ ., data = OJ, subset = train)
+summary(tree_oj)
+```
+
+Deviance is a measure of fit which is equivalent to RSS for cases such as least squares. The smaller the deviance, the better the fit (to the training data). The training error rate is `r summary(tree_oj)$misclass[1]/summary(tree_oj)$misclass[2]` and the tree has `r summary(tree_oj)$size` terminal nodes.
+
+## Part 9.c)
+
+Here is a detailed text summary of the table:
+```{r}
+tree_oj
+```
+
+Branches that lead to terminal nodes are indicated by astrisk symbols. In each row, we can see the split criterion, and the number of observations, the deviance and the overall prediction for the branch. The first number in parentheses is the fraction of observations that take on the value `MM` and the second is the fraction that take on the value `CH`.  
+
+## Part 9.d)
+
+```{r}
+plot(tree_oj)
+text(tree_oj, pretty = FALSE, cex = 0.7)
+```
+
+According to the tree we grew, brand loyalty to CH is the most important predictor for sales. Given `LoyalCH` is greater than 0.75 or smaller than 0.027, other variables seem to play little role in determining `Purchase`.  
+But among customers who do not have much loyalty to either brand, price difference does influence purchases, and if price of MM is low enough, compared to CH, they tend to buy MM. Loyalty matters even among these medium-loyalty customers: it takes a much cheaper MM (`PriceDiff` < -0.165) to persuade someone a bit loyal to CH (0.5 < `LoyalCH` < 0.75) to buy MM (compared to `PriceDiff` < 0.05 for 0.28 < `LoyalCH` < 0.5).  
+
+
+
+## Part 9.e) 
+
+
+```{r}
+preds_oj = predict(tree_oj, newdata = OJ[test, ], type = "class")
+table_oj <- table(test_purchase, preds_oj)
+table_oj
+```
+  
+Test error rate is about 19%:
+```{r}
+1 - sum(diag(table_oj))/sum(table_oj)
+mean(test_purchase != preds_oj)
+```
+
+## Part 9.f)
+
+```{r}
+set.seed(1)
+(cv_oj = cv.tree(tree_oj, FUN = prune.misclass))
+```
+
+$k$ represents the tuning parameter in the minimization problem solved in cost-complexity pruning. When $k$ is equal to $\infty$, it is as if we are maximizing $|T|$ which gives us the tree that we start with, the one with $T_0|$ terminal nodes. $k$ is represented as $\alpha$ in ISLR.  
+In the example above, the sequence of trees $T_\alpha$ above, found by solving the cost-complexity minimization, are a subset of trees resulted by weakest link pruning. Although weakest link pruning yields all subsets of the original tree (i.e. sub-trees with sizes equal to `r 8:1`), only a subset of them (trees with size equal to `r cv_oj$size`) solve the cost-complexity problem.  
+
+## Part 9.g)
+
+```{r}
+plot(cv_oj$size, cv_oj$dev, type = "b")
+```
+
+## Part 9.h)
+The error rate (confusingly labelled above as `dev` in the output) is minimized for a tree with 2 terminal nodes. But the difference in test error rates for trees of size 2, 5 and 8 is very small. 
+
+## Part 9.i)
+All the trees we found above by using cost-complexity pruning (done by `cv.tree`) are a subset of sub-trees that can be found using weakest link pruning (done by `prune.tree`). Hence, any tree with a given size $|T|$ is a tree found by weakest link pruning (successively ommiting branches) if and only if it is found by cost-complexity pruning (solving the optimization problem).
+
+As a result, given any tree, all we need to know about the the optimal sub-tree is the size of it. Without knowing anything about the shape of the optimal sub-tree (beyond its size), we can easily find it through weakest link pruning.
+
+```{r}
+prune_oj = prune.tree(tree_oj, best = 2)
+plot(prune_oj)
+text(prune_oj, pretty = FALSE, cex = 0.9)
+```
+
+## Part 9.j)
+
+The training and test error rates should be the same, since the predicted values for trees with size 6 and 8 are the same. The split that is omitted by pruning led to the same predicted value for both leaves (it only existed since it increased node purity).  
+We already showed that the classification test error rates are the same for the full tree and the pruned one. Below, we confirm the training error rates are also the same for them:
+
+```{r}
+# training error rate for full tree
+preds_full <- predict(tree_oj, newdata = OJ[train, ], type = "class")
+mean(OJ$Purchase[train] != preds_full)
+```
+
+```{r}
+# training error rate for optimal tree
+preds_prune <- predict(prune_oj, newdata = OJ[train, ], type = "class")
+mean(OJ$Purchase[train] != preds_prune)
+```
+The full tree has a smaller test error rate, which is not strange, given very similar C.V. error rates between the full tree and the pruned one. 
+
+## Part 9.k)  
+See part 9.j.
+
+# Exercise 10
+
+Knowing the data:
+```{r}
+library(ISLR)
+# know the data
+dim(Hitters)
+summary(Hitters)  # League, Division and NewLeague are quantitative
+sum(is.na(Hitters))  # 59 missing
+```
+```{r}
+# know the dependent variable: annual salary in thousands of dollars (see ?Hitters)
+sum(is.na(Hitters$Salary))  # 59 missing
+hist(Hitters$Salary)  # very skewed, long tail
+```
+
+Here, we know the missing values arise from `Hitters$Salary`. Nonetheless, in general for seeing what variables have missing values, we can also run the code below:
+```{r}
+length(Hitters)
+sapply(Hitters, FUN = function(x) sum(is.na(x)))
+```
+
+
+## Part 10.a)
+
+Cleaning the data:
+```{r}
+# we omit the missing, as suggested in the exercise:
+Hits <- na.omit(Hitters)
+# log-transform salary:
+Hits$lsalary <- log(Hits$Salary)
+hist(Hits$lsalary)
+```
+
+The log-transformation alleviates the skewness to a great extent. From now on, we work with `Hits` as the data and `lsalary` as the response.  
+
+
+## Part 10.b)
+
+```{r}
+train = 1:200
+test = -train
+```
+
+
+
+## Part 10.c)
+
+We want to draw training MSE as a function of the shrinkage parameter.
+```{r}
+# grid for lambda
+(lambda_grid <- 10^seq(0, -4, length = 9))
+```
+  
+  
+
+```{r 10c1}
+# training MSE
+library(gbm)
+library(ggplot2)
+set.seed(1)
+gbm_fits <- vector(mode = "list", length = length(lambda_grid))
+gbm_train_preds <- vector(mode = "list", length = length(lambda_grid))
+gbm_train_mse <- vector(length = length(lambda_grid))
+for (i in 1:length(lambda_grid)) {
+  gbm_fits[[i]] <- gbm(lsalary ~ ., data = Hits[train, ], distribution = "gaussian", 
+         n.trees = 1000, interaction.depth = 1, shrinkage = lambda_grid[i])
+  gbm_train_preds[[i]] <- predict(gbm_fits[[i]], newdata = Hits[train, ], n.trees = 1000)
+  gbm_train_mse[i] <- mean((Hits$lsalary[train] - gbm_train_preds[[i]])^2)
+}
+```
+
+Here is the plot:
+```{r 10c2}
+plot(lambda_grid, gbm_train_mse, type = "b")
+```
+
+As we see above the training MSE goes down to zero very quickly as we decrease $\lambda$. The direction of change in the training MSE could be seen more clearly by using a log-log scale:  
+```{r 10c3}
+plot(lambda_grid, gbm_train_mse, log = "xy", type = "b")
+```
+
+The log-log transformation shows the percentage change in training MSE as we change $\lambda$. Training MSE goes down as we increase $\lambda$. What the above plots show is that we get a better fit to the training data as we decrease the rate of learning. But the result is probably due to fixing the number of trees; for larger values of $\lambda$ we would need fewer trees to avoid overfitting. But since we are fiing the number of trees, the decline in the training MSE is likely to be due to overfitting for large enough shrinkage parameters. We need the compute the test MSE for finding the optimal value of $\lambda$.  
+
+
+
+<!-- We can use `ggplot2` to draw the same graph. `ggplot2` uses logarithmically-scaled labels on the axes by default. We can change the ticks as shown below.
+
+```{r}
+df <- data.frame(lambda = lambda_grid, train_mse = gbm_train_mse)
+ggplot(df) +
+  geom_point(mapping = aes(x = lambda, y = train_mse), shape = 21, size = 5) +
+  coord_trans(x = "log10", y = "log10") +
+  scale_x_continuous(breaks = signif(lambda_grid, digits = 2)) +
+  theme_classic()
+```
+
+
+As we saw, in this example it was easier to use the base plotting function in R for our purpose. Nevertheless, `ggplot` enables the implementation of much more elaborate details. For example, see [here](http://ggplot2.tidyverse.org/reference/annotation_logticks.html#arguments).
+-->
+
+## Part 10.d)
+To enable working with different combinations, we write a function:
+
+```{r}
+test_mse_ex10 <- 
+  function(data, lambda.grid, n.trees) {
+    set.seed(1)
+    gbm_test_mse <- rep(NA, length = length(lambda.grid))
+      for (i in 1:length(lambda.grid)) {
+        gbm_fit <- gbm(lsalary ~ . - Salary - lsalary, data = data[train, ], distribution = "gaussian",
+                 shrinkage = lambda.grid[i], interaction.depth = 1, n.trees = n.trees)
+        gbm_preds <- predict(gbm_fit, newdata = data[test, ], n.tree = n.trees)
+        gbm_test_mse[i] <- mean((data$lsalary[test] - gbm_preds)^2)
+      }
+  gbm_test_mse
+  }
+```
+
+We use the same grid for the test MSE. 
+``` {r}
+gbm_test_mse_9 <- test_mse_ex10(Hits, lambda.grid = lambda_grid, n.trees = 1000)
+opt_mse_9 <- c(lambda_grid[gbm_test_mse_9 == min(gbm_test_mse_9)],
+             min(gbm_test_mse_9))
+plot(lambda_grid, gbm_test_mse_9, log = "xy", type = "b")
+title(paste("optimal (x, y) = (", round(opt_mse_9[1], 3), ", ", round(opt_mse_9[2], 3), ")"))
+```
+
+We can prove that the minimum in the log-log plot is the same as the minimum in the non-transformed plot, since $x$ and $y$ are positive (it can be shown using the fact that $\frac{d \log(y)}{d \log(x)}=\frac{dy}{dx}\times \frac{x}{y}$, so whenever the derivative of the non-transformed function changes sign from negative to positive, so the does the derivative of transfromed). Since we do not have many grid points, the optimal point might not be the minimum point in the plot above. Below, we use a finer grid, but noly only increasing the number of grid points to 20, but also narrowing our focus on a smaller region:
+
+```{r}
+lambda_grid_20 <- 10^seq(from = log(0.02), to = log(0.7), length = 20)
+gbm_test_mse_20 <- test_mse_ex10(Hits, lambda.grid = lambda_grid_20, n.trees = 1000)
+opt_mse_20 <- c(lambda_grid_20[gbm_test_mse_20 == min(gbm_test_mse_20)],
+             min(gbm_test_mse_20))
+plot(lambda_grid_20, gbm_test_mse_20, log = "xy", type = "b")
+title(paste("optimal (x, y) = (", round(opt_mse_20[1], 3), ", ", round(opt_mse_20[2], 3), ")"))
+```
+
+```{r}
+c(lambda_grid_20[gbm_test_mse_20 == min(gbm_test_mse_20)], min(gbm_test_mse_20))
+```
+
+
+An interesting point is that the test MSE seems to be sensitive to the amount of $\lambda$, in the sense that a small change in $\lambda$ may casue a relatively large change in the test MSE. This is better seen using a finer grid, which we will investigate in the next subsection. However, we will use the amount of $\lambda$ we find here in the next rest of the exercise. 
+
+
+### Digression: the effect of finder grids
+The picture below shows the change in the plot if we only increase the number of grid points from 20 to 100, given the same interval:
+
+```{r}
+lambda_grid_100 <- 10^seq(from = log(0.02), to = log(0.7), length = 100)
+gbm_test_mse_100 <- test_mse_ex10(Hits, lambda.grid = lambda_grid_100, n.trees = 1000)
+opt_mse <- c(lambda_grid_100[gbm_test_mse_100 == min(gbm_test_mse_100)],
+             min(gbm_test_mse_100))
+plot(lambda_grid_100, gbm_test_mse_100, log = "xy", type = "b")
+title(paste("optimal (x, y) = (", round(opt_mse[1], 3), ", ", round(opt_mse[2], 3), ")"))
+```
+
+
+Below we look even closer. Even a closer look shows us that the optimal $\lambda$ should be between 0.02 and 0.2. But, due to the fluctuations, it does not give us much information beyond that. So we keep the number of grid points equal to 100, but narrow the interval:
+
+```{r}
+lambda_grid_100close <- 10^seq(from = log(0.06), to = log(0.7), length = 100)
+gbm_test_mse_100close <- 
+  test_mse_ex10(Hits, lambda.grid = lambda_grid_100close, n.trees = 1000)
+opt_mse <- c(lambda_grid_100close[gbm_test_mse_100close == min(gbm_test_mse_100close)],
+             min(gbm_test_mse_100close))
+plot(lambda_grid_100close, gbm_test_mse_100close, log = "xy", type = "b")
+title(paste("optimal (x, y) = (", round(opt_mse[1], 3), ", ", round(opt_mse[2], 3), ")"))
+```
+
+
+How would the optimal $\lambda$ change when we increase the number of trees? Does it improve the test MSE? We keep the narrowest interval we experimated with, as the previous plot, and increase the number of trees from 1000 to 5000:
+
+```{r}
+lambda_grid_100close <- 10^seq(from = log(0.06), to = log(0.7), length = 100)
+gbm_test_mse_100close <- test_mse_ex10(Hits, lambda.grid = lambda_grid_100close, n.trees = 5000)
+opt_mse <- c(lambda_grid_100close[gbm_test_mse_100close == min(gbm_test_mse_100close)], min(gbm_test_mse_100close))
+plot(lambda_grid_100close, gbm_test_mse_100close, log = "xy", type = "b")
+title(paste("optimal (x, y) = (", round(opt_mse[1], 3), ", ", round(opt_mse[2], 3), ")"))
+```
+
+
+In this example, optimal $\lambda$ decreases when we increase the number of trees, which is in line with the idea that when we have more trees, we can have slower pace of learning.  
+  
+The test MSE is very close in all cases we studied above, except for the case where we had only 9 grid points. Hence, in this example, we would have been fine as long as we used a moderate number of grid points. However, note that this is a very small dataset and we are using only 63 observations for the test data.
+
+
+
+## Part 10.e)
+
+Chapter 3 covered linear regression and chapter 6 covered subset selection, shrinkage and dimension reduction methods. The questions asks for combining linear regression with either of the methods in chapter 6. We will work only with linear variables, so will not make any higher-order transformation.
+
+### Best subset selection
+We use cross-validation with 5 folds. 
+
+
+<!--
+There is a wrong way to do this: We could use all the data available to `regsubsets()` to find the best model of each size before doing cross-validation over different sizes. The correct method is the same as the one used in the chapter 6 of ISLR. It uses the cross-validation's training data not only for cross-validation, but also for finding the best model of each size. For example, in a 5-fold cross-validation, it uses four folds out of five for computing RSS for all models of a give size and finding the one with the minimum RSS for each size. Afterwards, it computes the prediction error on the fifth fold.
+
+
+#### Wrong method
+We can implement the wrong method by applying `cv.glm()` to `regsubsets()` results. A complication is that the variable names in `regsubsets()` output is different from the variable names used by `cv.glm()`. `cv.glm()` inputs the variables from the data, which includes factor variables, while `regsubsets()` outputs no factor variables, since it coerces all of them to numeric dummy variables.  
+In order to match the variable names in the output of `regsubsets()` to the variable names in the input of `cv.glm()`, we transform all factor variables to dummy variables before feeding them to `regsubsets()`. This is done by defining `Hits_fin` below. Not only `Hits_fin` expands factor variable, but also omits any variables not required for `regsubsets()`.
+
+```{r}
+library(boot)
+library(leaps)
+set.seed(1)
+# We create all dummy variables before using regsubsets, so that we could match them afterwards; also use only training data:
+Hits_fin <- data.frame(model.matrix(~ . - 1- Salary, data = Hits[train, ]))
+# regsubsets to find best fits among all sizes in training data (test data reserved for computing test mse)
+regfit_full <- regsubsets(lsalary ~ ., data = Hits_fin,
+                          nvmax = 19)## cross validataion
+# Cross-validation among models of different sizes
+Cv_glm <- rep(NA, 19)
+for (i in 1:19) {  # model size
+  # get the variables in the best model of size i
+  var_names <- names(coef(regfit_full, id = i))
+  rhs <- paste(var_names[-1], collapse = " + ")  # we exclude the intercept
+  form <- as.formula(paste0("lsalary ~ ", rhs))
+  glm_fit <- glm(form, data = Hits_fin) 
+  cv_glm <- cv.glm(Hits_fin, glmfit = glm_fit, K = 5)$delta[[1]]
+  Cv_glm[i] <- cv_glm
+}
+plot(1:19, Cv_glm, type = "b")
+best_size1 <- which.min(Cv_glm)
+```
+
+The warnings arise from `cv.glm()` and the fact that it find the number of obervations too small. This is a problem we cannot address unless we have more data. 
+
+To understand why this is wrong, suppose we were using validation set approach instead of cross-validation. This is like using both training and test data for finding the best size and then refitting the model on the training data and evaluating on the test data. The problem is that we are using the test data for the model selection, which introduces overfitting.
+Hece, when using cross-validation, the test data in each fold could not be used in any way for training. 
+
+#### Second method
+-->
+
+ 
+```{r}
+library(leaps)
+set.seed(1)
+## define the predict function for regsubsets:
+predict.regsubsets = 
+  function (object, newdata ,id, ...) {
+    form = as.formula(object$call[[2]])
+    mat = model.matrix(form, newdata)
+    coefi = coef(object, id = id)
+    xvars = names(coefi)
+    mat[,xvars]%*%coefi
+  }
+## Compute CV error
+# define folds
+folds <- sample(1:5, size = length(train), replace = TRUE)
+# to avoid confusion of training set with different training data in cv
+Hits_cv <- Hits[train, ]
+Cv_mat <- matrix(NA, nrow = 19, ncol = 5)
+for (j in 1:5) {
+  regfit_j <- regsubsets(lsalary ~ . - Salary, data = Hits_cv[folds != j, ], nvmax = 19)
+  for (i in 1:19) {
+    preds_ij <- predict(regfit_j, Hits_cv[folds == j, ], id = i)
+    Cv_mat[i, j] <- mean((preds_ij - Hits_cv$lsalary[folds == j])^2)
+  }
+}
+Cv_regs <- apply(Cv_mat, FUN = mean, MARGIN = 1)
+plot(1:19, Cv_regs, type = "b")
+```
+
+The plot above implies that the optimal size is 4, i.e. with four variables. Now, we should retrieve the best model of size 4 using full training data (so far we have only used 4 folds out of 5 as training data in cross-validation): 
+
+```{r}
+regfit_full <- regsubsets(lsalary ~ . - Salary, data = Hits[train, ],
+                          nvmax = 4)  # four variables is enough
+preds2 <- predict(regfit_full, newdata = Hits[test, ], id = 4)
+(mse_best2 <- mean((preds2 - Hits$lsalary[test])^2))
+```
+
+
+### Ridge regression
+
+```{r}
+library(glmnet)
+Hits_x = model.matrix(lsalary ~ . - Salary, data = Hits)[, -1]
+lambda_grid <- 10^seq(10, -2, length = 100)
+fit_ridge <- glmnet(x = Hits_x[train, ], y =  Hits$lsalary[train], alpha = 0,
+       lambda = lambda_grid, thresh = 1e-12)
+cv_ridge <- cv.glmnet(x = Hits_x[test, ], y = Hits$lsalary[test], alpha = 0)
+best_lam <- cv_ridge$lambda.min
+preds_ridge <- predict(fit_ridge, s = best_lam, newx = Hits_x[test, ])
+(mse_ridge <- mean((preds_ridge - Hits$lsalary[test])^2))
+```
+
+### Lasso regression
+
+```{r}
+library(glmnet)
+Hits_x = model.matrix(lsalary ~ . - Salary, data = Hits)[, -1]
+lambda_grid <- 10^seq(10, -2, length = 100)
+fit_lasso <- glmnet(x = Hits_x[train, ], y =  Hits$lsalary[train], alpha = 1,
+       lambda = lambda_grid, thresh = 1e-12)
+cv_lasso <- cv.glmnet(x = Hits_x[test, ], y = Hits$lsalary[test], alpha = 1)
+best_lam <- cv_lasso$lambda.min
+preds_lasso <- predict(fit_lasso, s = best_lam, newx = Hits_x[test, ])
+(mse_lasso <- mean((preds_lasso - Hits$lsalary[test])^2))
+```
+
+### PCR
+```{r}
+library(pls)
+pcr_fit <- pcr(lsalary ~ . - Salary, data = Hits[train, ],
+    scale = TRUE, validation = "CV")
+summary(pcr_fit)
+validationplot(pcr_fit, val.type = "MSEP")
+```
+
+Choosing 1 component gives a reasonable cross-validation error. 
+```{r}
+preds_pcr <- predict(pcr_fit, newdata = Hits[test, ], ncomp = 1)
+(cv_pcr <- mean((preds_pcr - Hits$lsalary[test])^2))
+```
+
+
+The performance of boosting is impressive: it leads to test MSE estimate of about 0.26, while the best performance we get from the combination of a linear model with methods of chapter 6 is more than 0.43. This is despite the fact that we use an additive boosing model (we use stumps). This is an indication of nonlinearity in the data. 
+
+
+## Part 10.f)  
+
+We use the value of $\lambda$ we found with 20 grids, and use the full data:
+
+```{r}
+best_lam <- lambda_grid_20[gbm_test_mse_20 == min(gbm_test_mse_20)]
+gbm_fit <- gbm(lsalary ~ . - Salary - lsalary, data = Hits, distribution = "gaussian",
+        shrinkage = best_lam, interaction.depth = 1, n.trees = 1000)
+summary(gbm_fit)
+```
+
+`CAtBat` appears to be the most important variable. Perhaps more interestingly, the variables that measure values during the career seem to be much more important that the same-season measurements. 
+
+## Part 10.g)
+
+The bagging test MSE:
+```{r}
+library(randomForest)
+rf_fit <- randomForest(lsalary ~ . - Salary, data = Hits[train, ],
+                       mtry = 19, ntree = 500, importance = TRUE)
+rf_preds <- predict(rf_fit, newdata = Hits[test, ])
+(rf_mse <- mean((rf_preds - Hits$lsalary[test])^2))
+```
+The test MSE is slightly smaller than the one we found for boosting. This might be because of using an additive model for boosting, while the bagging estimator is more flexible.
+
+
+# Exercise 11
+
+```{r}
+library(ISLR)
+# the data
+dim(Caravan)  # 86 variables
+sum(is.na(Caravan))
+# response
+summary(Caravan$Purchase)
+contrasts(Caravan$Purchase)
+```
+
+`gbm()` with a qualitative variable as response requires transformation to a 0-1 dummy variable:
+```{r}
+Caravan$Purchase <- ifelse(Caravan$Purchase == "Yes", 1, 0)
+summary(Caravan$Purchase)
+```
+
+
+## Part 11.a)
+```{r}
+train = 1:1000
+test = -train
+```
+
+The test set is nearly 4 times larger than the training set.
+
+## Part 11.b)
+
+```{r}
+library(gbm)
+set.seed(1)
+gbm_fit <- gbm(Purchase ~ ., data = Caravan[train, ], distribution = "bernoulli",
+               interaction.depth = 2, n.trees = 1000, shrinkage = 0.01)
+```
+
+
+```{r}
+summary(gbm_fit)
+```
+
+`PPERSAUT` seems to be the most important determinant of `Purchase`.
+
+
+## Part 11.c)
+
+```{r}
+library(gmodels)
+gbm_probs <- predict(gbm_fit, newdata = Caravan[test, ], n.trees = 1000, type = "response")
+gbm_preds <- ifelse(gbm_probs > 0.2, 1, 0)
+CrossTable(gbm_preds, Caravan$Purchase[test])
+```
+17.5% of the people predicted to make a purchase do in fact make one. It is more accurate than the KNN and logistic predictions below.
+
+### KNN
+We try KNN with k = 2.
+```{r}
+library(class)
+set.seed(1)
+knn_preds <- knn(test = Caravan[test, ], train = Caravan[train, ], cl = Caravan$Purchase[train], k = 2)
+CrossTable(knn_preds, Caravan$Purchase[test])
+```
+10.6% of those who are predicted to purchase in fact purchase according to the KNN.  
+
+### Logistic regression
+We use the same threshold of 0.2 for logistic regression:
+```{r}
+glm_fit <- glm(Purchase ~ ., data = Caravan[train, ], family = "binomial")
+glm_probs <- predict(glm_fit, newdata= Caravan[test, ], type = "response")
+glm_preds <- ifelse(glm_probs > 0.2, 1, 0)
+CrossTable(glm_preds, Caravan$Purchase[test])
+```
+
+For logistic regression, 14.2% of those who are predicted to purchuse do purchase. 
+
+
+
+
+
+
+
+

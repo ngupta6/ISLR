@@ -183,7 +183,7 @@ test = -train
 tree.boston = tree(medv ~ ., data = Boston, subset = train)
 summary(tree.boston)
 ```
-Three variables are used and a tree with 8 leaves is grown. As it is the case with linear regression, deviance is equal to RSS over the variance of error (or equal to RSS, if we use an alternative defintion for deviance), under normal distribution. In linear regression, the assumption was that we have a linear model with Gaussian errors. Under this assumption, we could verify that  
+Three variables are used and a tree with 8 leaves is grown. As it is the case with linear regression, deviance is equal to RSS over the error's variance (or equal to RSS, if we use an alternative defintion for deviance), under normal distribution. In linear regression, the assumption was that we had a linear model with Gaussian errors. Under this assumption, we could verify that  
 
 $$
 Dev = 2\times \frac{\mathcal{L} ( y|\theta_s)}{\mathcal{L}(y|\theta_0)}
@@ -354,10 +354,13 @@ mean((yhat.boost - test.y.boston)^2)
 
 ## Summary
 * The library is `gbm`
+* Use `set.seed()` before `gbm()`
 * We estimated the model, saw the relative influence statistics, and depicted partial dependence plots.
 * `gbm` does not accept the argument `subset`
 * `distribution`, `n.trees`, `shrinkage`, `interaction.depth` with default values `"bernoulli"`, `100`, `0.001`, `1`.
-* Set the `distribution` argument to `"gaussian"` if regression and to `"bernouli"` if classification. 
+* Set the `distribution` argument to `"gaussian"` if regression and to `"bernoulli"` if classification. 
+    + When `distribution` is set to be `bernoulli`, the values of response should either be 0 or 1.  
+    + When `distribution` is set to be `bernoulli`, we should use the argument `type = "response"` to obtain predicted probabilities.    
 * Partial dependence plots can be drawn using `plot.gbm()` with the name of the variable specified in the argument `i.var`
 * The argument `n.trees` in `predict.gbm` is used for specifying how many trees from the boosted sequence to use in prediction. As a result, it should be lower than the number used for fitting the boosted model.
 
