@@ -1,0 +1,375 @@
+---
+title: "Chapter 9 Lab"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+  html_notebook: default
+  pdf_document:
+    toc: yes
+    toc_depth: 2
+---
+
+<!--  -->
+
+# Support Vector Classifier
+
+The library that we use will be `e1071`. An alternative for support vector classification (i.e. linear SVM with linear kernel) is `LiblineaR`.
+
+```{r}
+set.seed(1)
+X <- matrix(rnorm(20*2), ncol = 2)
+y <- c(rep(-1, length = 10), rep(1, length = 10))
+X[y == 1, ] <- X[y == 1, ] + 1
+plot(X, col = 3 - y)
+```
+
+```{r}
+# data frame with y as factor
+dat <- data.frame(X = X, y = as.factor(y))
+# library and fit
+library(e1071)
+svmfit <- svm(y ~ ., data = dat, kernel = "linear", cost = 10, scale = FALSE)
+```
+
+We plot the fit: 
+```{r}
+plot(svmfit, data = dat)
+```
+
+The support vectors are plotted as crosses, and the second variable is on the horizontal axis.  
+```{r}
+names(svmfit)
+```
+
+As shown below, we could retrieve different variables from the fit, inclduing the index and values of the support vectors:
+```{r}
+svmfit$index
+svmfit$SV
+```
+
+We could also obtain basic information using `summary()` command: 
+
+```{r}
+summary(svmfit)
+```
+It tells us for example that 4 suppport vectors are in the -1 class and 3 are in the 1 class. When we lower the cost, we get more support vectors:
+
+```{r}
+svmfit <- svm(y ~ . , data = dat, kernel = "linear", cost = 0.1,
+              scale = FALSE)
+plot(svmfit, data = dat)
+```
+
+```{r}
+svmfit$index
+```
+
+While `svm()` retreives the support vectors, it does not allow us to see the parameters for neither the separating hyperplane nor the margin.  
+
+## Cross-Validation
+`tune` is a built-in function in `e1071` which allows us to cross-validate across a range of models.  
+Unlike the book, we do impose `scale = FALSE` to be consistent with our later comparision (although :
+```{r}
+set.seed(3)
+tune.out <- tune(svm, y ~ ., data = dat, kernel = "linear",
+     ranges = list(cost = c(0.001, 0.01, 0.1, 1, 5, 10, 100)),
+     scale = FALSE)
+```
+
+The first argument in `tune()` is either the function or the character string name of it. We access the errors for each of the models being evaluated using `summary.tune()`:
+```{r}
+summary(tune.out)
+```
+
+`tune()` stores the best model:
+```{r}
+bestmod <- tune.out$best.model
+summary(bestmod)
+```
+
+Generate test data:
+```{r}
+# set the seed, so that changing the chunks' order of execution wouldn't change the result:
+set.seed(1)
+Xtest <- matrix(rnorm(20*2), ncol = 2)
+ytest <- sample(c(-1, 1), size = 20, replace = TRUE)
+Xtest[ytest == 1, ] = Xtest[ytest == 1, ] + 1
+testdat <- data.frame(X = Xtest, y = as.factor(ytest))
+```
+
+Test error rate with the best model:
+```{r}
+ypred <- predict(bestmod, newdata = testdat)
+table(predict = ypred, truth = ytest)
+```
+
+Test error rate with the model with `cost = 0.01`:
+```{r}
+svmfit <- svm(y ~ ., data = dat, cost = 0.01, kernel = "linear",
+              scale = FALSE)
+ypred <- predict(svmfit, data = testdat)
+table(predict = ypred, truth = testdat$y)
+```
+
+
+This model performs much worse than the best model. However, it would have been possible to find a model that outperfroms the best model (according to cross-validation), due to the random nature of cross-validation in choosing the best model and the randomness in the test data.
+
+## Linearly Separable Data
+To make the classes linearly separable, we increase features corresponding to class +1 another 0.5 point (in addition to the 1 point we added to them already). Be careful to run the below once or improve the naming.
+
+```{r}
+X[y == 1, ] <- X[y == 1, ] + 0.5
+plot(X, col = (y + 5)/2)
+```
+
+Hard margins:
+```{r}
+dat <- data.frame(X = X, y = as.factor(y))
+svmfit <- svm(y ~ ., data = dat, kernel = "linear", cost = 1e+5,
+              scale = FALSE)
+summary(svmfit)
+```
+
+```{r}
+plot(svmfit, data = dat)
+```
+
+This model is fit too closely, which has resulted in only 3 support vectors and a narrow margin.
+
+Soft margins:
+```{r}
+svmfit <- svm(y ~ ., data = dat, kernel = "linear", cost = 1, 
+              scale = FALSE)
+summary(svmfit)
+```
+
+```{r}
+plot(svmfit, data = dat)
+```
+
+
+
+## Takeaways
+* Make sure the response is a factor variable before using `svm()` classification
+* Always name the variables inside `data.frame()` or `list()`
+    + Otherwise, the R's default naming may cause confusion later
+* Since SVM is distance-based, we should scale the variables to get reasonable results.   
+    + Otherwise the variables with higher variance will dominate, and the kernel will use measures of similarity based on those variables.  
+* `plot.svm()` needs a second argument indicating data.
+* `summary.svm()` gives us the basic information, while element `index` and `SV` of a fit object give information about the support vectors.
+* The first argument in `tune()` is the method
+* We can name the dimensions in `table()`
+
+
+# Support Vector Machine
+
+```{r}
+set.seed(1)
+# Generate nonlinear data:
+X <- matrix(rnorm(200*2), ncol = 2)
+X[1:100, ] <- X[1:100, ] + 2
+X[101:150, ] <- X[101:150, ] - 2
+y <- c(rep(1, 150), rep(2, 50))
+dat <- data.frame(X = X, y = as.factor(y))
+plot(X, col = y)
+```
+
+Radial kernel:
+```{r}
+set.seed(1)
+train = sample(200, size = 100)
+svmfit <- svm(y ~ ., data = dat[train, ], cost = 1, kernel = "radial",
+              gamma = 1)
+plot(svmfit, dat[train, ])
+```
+
+The red markers belong to the purple area and the black markers to the green area. Those points that are support vectors (in the Hilbert feature space) are identified by crosses. 
+
+```{r}
+summary(svmfit)
+```
+
+There are a fair number of training errors. To reduce them we could increase the cost of violating the margin, but that would come at the cost of a more irregular decision boundary and the risk of overfitting:
+```{r}
+svmfit <- svm(y ~ ., data = dat[train, ], cost = 1e+5, kernel = "radial",
+              gamma = 1)
+plot(svmfit, data = dat[train, ])
+```
+
+## Cross-Validation
+```{r}
+set.seed(1)
+tune.out <- tune(svm, y ~ ., data = dat[train, ], kernel = "radial", 
+                 ranges = list(gamma = c(0.5, 1, 2, 3, 4), cost = c(0.1, 1, 10, 100, 1000)))
+summary(tune.out)
+gamma_best <- summary(tune.out)$best.parameters[1]
+cost_best <- summary(tune.out)$best.parameters[2]
+```
+
+```{r}
+plot(tune.out$best.model, data = dat[train, ])
+```
+
+## Test Error Rate
+```{r}
+ypred <- predict(tune.out$best.model, newdata = dat[-train, ])
+table(predict = ypred, truth = y[-train])
+```
+
+The test error rate is
+```{r}
+mean(ypred != y[-train])
+```
+
+
+## Summary and Takeaways
+* The additional argument for `kernel = "polynomial'` is `degree` and for `kernel = "radial"` is `gamma`
+* in the `plot.svm()`, the red markers belong to the purple area, while black markers to the green area. The support vectors are identified by crosses.
+* Be careful to use `plot.svm()` with only the training data or the test data, e.g. `plot(svmfit, data = dat[train, ])`
+* `tune()` can choose the best model on grids of `cost` and `gamma` at the same time, e.g. `ranges = list(gamma = c(...), cost = c(...)))`
+    + There may be different number of values for `gamma` and `cost`
+    + `tune()` considers all combinations of `gamma` and `cost`
+* The book sets the `cost` argument in `tune` to change exponentially, which reminds me of how we set the grid for `lambda` in `glmnet()`.
+
+
+# ROC Curves
+
+`prediction()` and `performance()` are the main functions in the `ROCR` package. `prediction()` is used to transform the input dat to a standardized format, and `performance()` is used for predictor evaluation.
+
+```{r}
+library(ROCR)
+rocplot <- function(pred, truth, ...) {
+  predob <- prediction(predictions = pred, labels = truth,
+                       label.ordering = c(2, 1))
+  perf <- performance(predob, measure = "tpr", x.measure = "fpr")
+  plot(perf, ...)
+}
+```
+
+
+Note the argument `label.ordering = c(2, 1)` that we use, which is not used in ISLR. If we do not use it, we would get an inverted ROC curve. 
+Apart from the purposes for which we use `ROCR` here, the package can be used to find the optimal cutoff, e.g. when costs of false positive and false negative are different. You can find a good introduction to the `ROCR` package [here](https://www.r-bloggers.com/a-small-introduction-to-the-rocr-package/).  
+Before plotting the ROC curves, we obtain the fitted values $f(x) = \beta_0 + x^T \beta$:
+
+```{r}
+svmfit.opt <- svm(y ~ ., data = dat[train, ], cost = cost_best, kernel = "radial",
+                  gamma = gamma_best)
+pred.out <- predict(svmfit.opt, newdata = dat[train, ], decision.values = TRUE)
+fitted <- attr(pred.out, "decision.values")
+```
+
+Best model's ROC for training data
+```{r}
+par(mfrow = c(1, 2))
+rocplot(pred = fitted, truth = dat[train, "y"])
+# A flexible model's ROC for training data
+svmfit.flex <- svm(y ~ ., data = dat[train, ], cost = cost_best,
+                   kernel = "radial", gamma = 50)
+pred.flex <- predict(svmfit.flex, newdata = dat[train, ], decision.values = TRUE)
+fitted.flex <- attr(pred.flex, "decision.values")
+rocplot(pred = fitted.flex, truth = dat[train, "y"], add = TRUE, col = "red")
+
+# Best model's ROC for test data
+pred.opt.test <- predict(svmfit.opt, newdata = dat[-train, ],
+                         decision.values = TRUE)
+fitted.opt.test <- attr(pred.opt.test, "decision.values")
+rocplot(pred = fitted.opt.test, truth = dat[-train, "y"])
+# A flexible model's ROC for test data
+pred.flex.test <- predict(svmfit.flex, newdata = dat[-train, ], 
+                          decision.values = TRUE)
+fitted.flex.test <- attr(pred.flex.test, "decision.values")
+rocplot(pred = fitted.flex.test, truth = dat[-train, "y"], add = TRUE, col = "red")
+
+```
+
+
+# SVM with Multiple Classes
+
+The introduction of variables `X_tmp` and `X_new` below makes the results robust to multiple execution of the chunk below:
+```{r}
+# add a class
+set.seed(1)
+# temporary variables
+X_tmp <- X
+y_tmp <- y
+# update X and y
+X_tmp <- rbind(X_tmp, matrix(rnorm(50*2), ncol = 2))
+y_tmp <- c(y_tmp, rep(0, length = 50))
+# shift only the second variable up
+X_tmp[y_tmp == 0, 2] <- X_tmp[y_tmp == 0, 2] + 2
+# define updated variables
+X_new <- X_tmp
+y_new <- y_tmp
+# rewrite the data frame
+dat <- data.frame(x = X_new, y = as.factor(y_new))
+# plot
+par(mfrow = c(1, 2))
+plot(X_new, col = y_new + 1)
+plot(dat$x.2, dat$x.1, col = as.numeric(as.character(dat$y)) + 1)
+```
+
+The second plot above flips the variables on the axes to correspond to the plot depicted below for the SVM fit to the whole data:
+```{r}
+svmfit_3classes <- svm(y ~ ., data = dat, cost = 10, 
+                       kernel = "radial", gamma = 1)
+plot(svmfit_3classes, data = dat)
+```
+
+# Application to Gene Expression Data
+
+```{r}
+library(ISLR)
+names(Khan)
+str(Khan)
+summary(Khan)
+```
+
+We see that `Khan` is a list.
+
+```{r}
+dim(Khan$xtrain)
+dim(Khan$xtest)
+length(Khan$ytrain)
+length(Khan$ytest)
+```
+
+
+There are 63 training observations and 2308 features.
+```{r}
+str(Khan$ytrain)
+unique(Khan$ytrain)
+```
+Next step is to see how mnay observation of each response we have. This is especially important since we have few observations. If we have for instance only one response value we could not fit any model.
+```{r}
+table(Khan$ytrain)
+table(Khan$ytest)
+```
+
+SVM:
+```{r}
+# training data
+dat_train <- data.frame(x = Khan$xtrain, ytrain = as.factor(Khan$ytrain))
+svmfit_gene <- svm(ytrain ~ ., data = dat_train, cost = 10, kernel = "linear")
+summary(svmfit_gene)
+pred_train <- predict(svmfit_gene, newdata = dat_train)
+table(pred = pred_train, truth = dat_train$ytrain)
+                   
+```
+
+Test data:
+```{r}
+dat_test <- data.frame(x = Khan$xtest, y = as.factor(Khan$ytest))
+pred_test <- predict(svmfit_gene, newdata = dat_test)
+table(pred = pred_test, truth = Khan$ytest)
+```
+
+
+
+
+
+
+
