@@ -1,20 +1,17 @@
 ---
 title: "ISLR Chapter 7 Applied Exercises"
 author: "Yoosef Ghahreman"
-output: 
+output:
   html_document:
-    # highlight: pygments
-    # code_folding: hide
-    # number_sections: true
-    toc: true
+    toc: yes
     toc_depth: 2
     toc_float:
-      collapsed: false
-      smooth_scroll: false
-  pdf_document:
-    toc: true
-    toc_depth: 2
+      collapsed: no
+      smooth_scroll: no
   html_notebook: default
+  pdf_document:
+    toc: yes
+    toc_depth: 2
 ---
 
 
